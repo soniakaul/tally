@@ -1,0 +1,30 @@
+@import url('https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400;12..96,500;12..96,600;12..96,700;12..96,800&family=Inter:wght@400;500;600;700&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+  body {
+    @apply bg-cream text-ink font-sans antialiased;
+    font-feature-settings: 'ss01', 'cv11';
+  }
+  h1,
+  h2,
+  h3 {
+    @apply font-display tracking-tightest text-ink;
+  }
+}
+
+@layer utilities {
+  .dotted-bg {
+    background-image: radial-gradient(circle, #d9d5c7 1px, transparent 1px);
+    background-size: 18px 18px;
+    background-position: 0 0;
+  }
+}
