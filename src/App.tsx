@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { AuthGate } from './components/AuthGate'
 import { Sidebar } from './components/Sidebar'
 import { StatCard } from './components/StatCard'
@@ -9,18 +9,18 @@ import {
   PaymentDialog,
   type PaymentSavePayload,
 } from './components/PaymentDialog'
-import { CategoriesPage } from './pages/CategoriesPage'
+import { ItemsPage } from './pages/ItemsPage'
 import { SettingsPage } from './pages/SettingsPage'
 import type { Payment } from './state/payments'
 import type { Household, Person } from './state/household'
-import type { Category } from './state/categories'
+import type { Country } from './state/country'
+import type { Item } from './state/item'
 import {
   cn,
   computeStatus,
   convertToHome,
   formatCurrency,
   formatToday,
-  relativeDays,
 } from './lib/utils'
 import {
   coldStartSnapshot,
@@ -30,11 +30,13 @@ import {
   setCachedRates,
   type FxSnapshot,
 } from './lib/fx'
-import { findCategory } from './state/categories'
+import { findItem } from './state/item'
+import { findCountry } from './state/country'
 import { useAuth } from './state/auth'
 import { useHousehold } from './hooks/useHousehold'
 import { usePeople } from './hooks/usePeople'
-import { useCategories } from './hooks/useCategories'
+import { useCountries } from './hooks/useCountries'
+import { useItems } from './hooks/useItems'
 import { usePayments } from './hooks/usePayments'
 import { useReminders } from './hooks/useReminders'
 
@@ -51,12 +53,13 @@ export default function App() {
 function AppShell() {
   const { household } = useHousehold()
   const { people } = usePeople()
-  const { categories } = useCategories()
+  const { countries } = useCountries()
+  const { items } = useItems()
   const {
     payments,
     add: addPayment,
     update: updatePayment,
-    remove: removePayment,
+    removeScoped: removeScopedPayment,
     togglePaid,
   } = usePayments()
   const { reminders, remove: removeReminder } = useReminders()
@@ -72,14 +75,12 @@ function AppShell() {
 
   // Prefer ANY cached snapshot over hardcoded fallback — even a stale cache
   // is way more accurate than constants we baked in months ago.
-  // Hardcoded only kicks in for brand-new users who can't reach the API at all.
   const [fxSnapshot, setFxSnapshot] = useState<FxSnapshot>(
     () => getCachedRates() ?? coldStartSnapshot,
   )
 
   useEffect(() => {
     const cached = getCachedRates()
-    // If today's rates are already cached, nothing to do.
     if (cached && !isStale(cached)) return
 
     fetchFxRates()
@@ -88,8 +89,6 @@ function AppShell() {
         setFxSnapshot(snapshot)
       })
       .catch((err) => {
-        // Keep the stale cache (already in state from useState init) — it's
-        // a far better fallback than the hardcoded constants would be.
         console.warn(
           'FX fetch failed, sticking with last cached rates',
           err,
@@ -99,7 +98,6 @@ function AppShell() {
 
   const handleSavePayment = async (payload: PaymentSavePayload) => {
     if (editingPayment) {
-      // Recompute status if dueDate changed and not paid
       const status =
         editingPayment.status === 'paid'
           ? 'paid'
@@ -117,22 +115,17 @@ function AppShell() {
     setEditingPayment(undefined)
   }
 
-  const handleRemovePayment = async () => {
+  const handleRemovePayment = async (
+    scope: 'one' | 'future' | 'all',
+  ) => {
     if (!editingPayment) return
-    await removePayment(editingPayment.id)
+    await removeScopedPayment({ payment: editingPayment, scope })
     setEditingPayment(undefined)
   }
 
   const handleDeleteHousehold = async () => {
-    // Cascades via FK ON DELETE CASCADE — deleting the household row removes
-    // everything attached. RLS allows it because the user owns it.
     if (!household) return
-    // Delete payments, categories, people, reminders aren't strictly needed
-    // because of CASCADE, but doing it explicitly is more obvious for debugging.
     await Promise.all(reminders.map((r) => removeReminder(r.id)))
-    // For now, sign out — the household row deletion would need an RPC since
-    // the FK from profiles.household_id with CASCADE will nuke the profile.
-    // Simplest: sign out and let user manage from Supabase dashboard if needed.
     await signOut()
   }
 
@@ -140,6 +133,8 @@ function AppShell() {
     setActivePage(key)
     setSidebarOpen(false)
   }
+
+  const canAddPayment = countries.length > 0 && items.length > 0
 
   return (
     <div className="flex h-screen bg-cream">
@@ -166,7 +161,7 @@ function AppShell() {
                   type="text"
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}
-                  placeholder="Search payments, categories, people…"
+                  placeholder="Search payments, items, people…"
                   className="hidden w-80 rounded-full border border-edge bg-card/60 px-4 py-2 text-sm text-ink placeholder:text-ink-faint focus:border-ink focus:outline-none md:block"
                 />
               )}
@@ -180,14 +175,26 @@ function AppShell() {
               {activePage === 'dashboard' && (
                 <button
                   onClick={() => setEditingPayment(null)}
-                  className="group inline-flex items-center gap-2 rounded-full bg-ink px-3 py-2 text-sm font-medium text-cream transition hover:bg-ink-muted md:px-5 md:py-2.5"
-                  title="Add payment"
+                  disabled={!canAddPayment}
+                  title={
+                    canAddPayment
+                      ? 'Add payment'
+                      : 'Add a country and item first'
+                  }
+                  className={cn(
+                    'group inline-flex items-center gap-2 rounded-full px-3 py-2 text-sm font-medium transition md:px-5 md:py-2.5',
+                    canAddPayment
+                      ? 'bg-ink text-cream hover:bg-ink-muted'
+                      : 'cursor-not-allowed bg-edge text-ink-faint',
+                  )}
                 >
                   <span>+</span>
                   <span className="hidden md:inline">Add payment</span>
-                  <span className="hidden transition group-hover:translate-x-0.5 md:inline">
-                    →
-                  </span>
+                  {canAddPayment && (
+                    <span className="hidden transition group-hover:translate-x-0.5 md:inline">
+                      →
+                    </span>
+                  )}
                 </button>
               )}
             </div>
@@ -208,7 +215,8 @@ function AppShell() {
             <Dashboard
               household={household}
               people={people}
-              categories={categories}
+              countries={countries}
+              items={items}
               payments={payments}
               fxRates={fxSnapshot.rates}
               search={search}
@@ -216,7 +224,7 @@ function AppShell() {
               onTogglePaid={togglePaid}
             />
           )}
-          {activePage === 'categories' && <CategoriesPage />}
+          {activePage === 'items' && <ItemsPage />}
           {activePage === 'settings' && (
             <SettingsPage
               fxSnapshot={fxSnapshot}
@@ -233,7 +241,8 @@ function AppShell() {
       {editingPayment !== undefined && (
         <PaymentDialog
           initial={editingPayment}
-          categories={categories}
+          countries={countries}
+          items={items}
           people={people}
           onSave={handleSavePayment}
           onRemove={editingPayment ? handleRemovePayment : undefined}
@@ -253,16 +262,26 @@ function AppShell() {
 }
 
 type DashboardFilters = {
+  countryId: 'all' | string
+  itemId: 'all' | string
   person: 'all' | string
   overdueOnly: boolean
   minAmount: string
   maxAmount: string
 }
 
+function isSameMonth(iso: string, ref: Date): boolean {
+  const d = new Date(iso)
+  return (
+    d.getFullYear() === ref.getFullYear() && d.getMonth() === ref.getMonth()
+  )
+}
+
 function Dashboard({
   household,
   people,
-  categories,
+  countries,
+  items,
   payments,
   fxRates,
   search,
@@ -271,7 +290,8 @@ function Dashboard({
 }: {
   household: Household | null
   people: Person[]
-  categories: Category[]
+  countries: Country[]
+  items: Item[]
   payments: Payment[]
   fxRates: Record<string, number>
   search: string
@@ -279,6 +299,8 @@ function Dashboard({
   onTogglePaid: (p: Payment) => void
 }) {
   const [filters, setFilters] = useState<DashboardFilters>({
+    countryId: 'all',
+    itemId: 'all',
     person: 'all',
     overdueOnly: false,
     minAmount: '',
@@ -286,23 +308,41 @@ function Dashboard({
   })
 
   const homeCurrency = household?.home_currency ?? 'INR'
+  const monthName = TODAY.toLocaleDateString('en-US', { month: 'long' })
 
-  const upcoming = payments.filter(
-    (p) => p.status === 'upcoming' && relativeDays(p.due_date, TODAY) <= 7,
-  )
-  const paidThisMonth = payments.filter((p) => p.status === 'paid')
-  const overdue = payments.filter((p) => p.status === 'overdue')
-  const monthlyOutflow = payments
-    .filter((p) => p.recurrence === 'monthly')
-    .reduce(
-      (sum, p) =>
-        sum + convertToHome(p.amount, p.currency, homeCurrency, fxRates),
-      0,
-    )
-  const dueThisWeekTotal = upcoming.reduce(
-    (sum, p) =>
-      sum + convertToHome(p.amount, p.currency, homeCurrency, fxRates),
-    0,
+  // When the user filters to a single country (directly, or implicitly by
+  // picking an item that belongs to one country), the stat cards switch to
+  // that country's currency. Otherwise we stay in the home currency so totals
+  // across multiple currencies roll up sensibly.
+  const filterCountry = (() => {
+    if (filters.countryId !== 'all') {
+      return findCountry(countries, filters.countryId)
+    }
+    if (filters.itemId !== 'all') {
+      const item = findItem(items, filters.itemId)
+      return item ? findCountry(countries, item.country_id) : undefined
+    }
+    return undefined
+  })()
+  const statCurrency = filterCountry?.currency_code ?? homeCurrency
+
+  // Country filter resets the item filter (since item belongs to country).
+  const setCountryFilter = (cid: string) => {
+    setFilters((f) => ({
+      ...f,
+      countryId: cid,
+      itemId: cid === 'all' ? f.itemId : 'all',
+    }))
+  }
+
+  // Items the user can pick from in the filter — restricted to the currently
+  // filtered country if one is set.
+  const availableItems = useMemo(
+    () =>
+      filters.countryId === 'all'
+        ? items
+        : items.filter((i) => i.country_id === filters.countryId),
+    [items, filters.countryId],
   )
 
   const minN = filters.minAmount ? parseFloat(filters.minAmount) : null
@@ -312,16 +352,23 @@ function Dashboard({
   const matchesSearch = (p: Payment): boolean => {
     if (!q) return true
     if (p.name.toLowerCase().includes(q)) return true
-    const cat = findCategory(categories, p.category_id)
-    if (cat?.name.toLowerCase().includes(q)) return true
+    const item = findItem(items, p.item_id)
+    if (item?.name.toLowerCase().includes(q)) return true
+    if (item?.type.toLowerCase().includes(q)) return true
+    const country = item ? findCountry(countries, item.country_id) : undefined
+    if (country?.name.toLowerCase().includes(q)) return true
     if (p.person === 'both' && 'both shared'.includes(q)) return true
     const person = people.find((per) => per.id === p.person)
     if (person?.name.toLowerCase().includes(q)) return true
     return false
   }
 
-  const filtered = payments.filter((p) => {
-    if (!matchesSearch(p)) return false
+  const passesStructuralFilters = (p: Payment): boolean => {
+    if (filters.countryId !== 'all') {
+      const item = findItem(items, p.item_id)
+      if (!item || item.country_id !== filters.countryId) return false
+    }
+    if (filters.itemId !== 'all' && p.item_id !== filters.itemId) return false
     if (filters.person !== 'all' && p.person !== filters.person) return false
     if (filters.overdueOnly && p.status !== 'overdue') return false
     const homeAmount = convertToHome(
@@ -333,7 +380,35 @@ function Dashboard({
     if (minN != null && homeAmount < minN) return false
     if (maxN != null && homeAmount > maxN) return false
     return true
-  })
+  }
+
+  // Visible rows in the table = full filter set including search.
+  const filtered = payments.filter(
+    (p) => passesStructuralFilters(p) && matchesSearch(p),
+  )
+
+  // Stat cards reflect structural filters (country/item/person/overdue/amount)
+  // but ignore the search box — search is a quick view tool, not a budget knob.
+  const inScopeForStats = payments.filter(passesStructuralFilters)
+  const thisMonth = inScopeForStats.filter((p) => isSameMonth(p.due_date, TODAY))
+  const inflowThisMonth = thisMonth
+    .filter((p) => p.direction === 'incoming')
+    .reduce(
+      (sum, p) =>
+        sum + convertToHome(p.amount, p.currency, statCurrency, fxRates),
+      0,
+    )
+  const outflowThisMonth = thisMonth
+    .filter((p) => p.direction === 'outgoing')
+    .reduce(
+      (sum, p) =>
+        sum + convertToHome(p.amount, p.currency, statCurrency, fxRates),
+      0,
+    )
+  const overdueCount = inScopeForStats.filter((p) => p.status === 'overdue')
+    .length
+  const inflowCount = thisMonth.filter((p) => p.direction === 'incoming').length
+  const outflowCount = thisMonth.filter((p) => p.direction === 'outgoing').length
 
   const sortedPayments = [...filtered].sort((a, b) => {
     const sa = a.status === 'overdue' ? -1 : a.status === 'paid' ? 1 : 0
@@ -347,20 +422,33 @@ function Dashboard({
     '',
   )
 
-  const firstPerson = people[0]
-  const subtitleReminder = firstPerson
-    ? `${firstPerson.name} will get the next reminder`
-    : 'add people to start sending reminders'
-
   const clearFilters = () =>
-    setFilters({ person: 'all', overdueOnly: false, minAmount: '', maxAmount: '' })
+    setFilters({
+      countryId: 'all',
+      itemId: 'all',
+      person: 'all',
+      overdueOnly: false,
+      minAmount: '',
+      maxAmount: '',
+    })
 
   const hasFilter =
+    filters.countryId !== 'all' ||
+    filters.itemId !== 'all' ||
     filters.person !== 'all' ||
     filters.overdueOnly ||
     filters.minAmount !== '' ||
     filters.maxAmount !== '' ||
     q !== ''
+
+  const statScopeLabel = (() => {
+    if (filters.countryId === 'all' && filters.itemId === 'all') return null
+    const country = findCountry(countries, filters.countryId)
+    const item = findItem(items, filters.itemId)
+    if (item) return `for ${item.name}`
+    if (country) return `in ${country.name}`
+    return null
+  })()
 
   return (
     <div className="dotted-bg px-4 pb-16 pt-8 md:px-10 md:pt-10">
@@ -369,40 +457,43 @@ function Dashboard({
           {formatToday(TODAY)}
         </p>
         <h1 className="font-display text-4xl font-bold leading-[0.95] tracking-tightest md:text-6xl">
-          Everything due
-          <br />
-          this month.
+          payments.
         </h1>
         <p className="mt-3 text-sm text-ink-muted md:mt-4 md:text-base">
-          {upcoming.length} payments coming up · {overdue.length} overdue ·{' '}
-          {subtitleReminder}.
+          {inflowCount + outflowCount} payments due this month ·{' '}
+          {overdueCount} overdue
+          {statScopeLabel ? ` · ${statScopeLabel}` : ''}.
         </p>
       </div>
 
-      <div className="mb-8 grid grid-cols-1 gap-3 sm:grid-cols-2 md:mb-10 md:gap-4 lg:grid-cols-4">
+      <div className="mb-8 grid grid-cols-1 gap-3 sm:grid-cols-3 md:mb-10 md:gap-4">
         <StatCard
-          label="due this week"
-          value={String(upcoming.length)}
-          subtitle={`${formatCurrency(dueThisWeekTotal, homeCurrency)} total`}
-          icon={<CalendarIcon />}
+          label={`incoming · ${monthName.toLowerCase()}`}
+          value={formatCurrency(inflowThisMonth, statCurrency)}
+          subtitle={inflowCount === 0 ? '—' : `${inflowCount} payment${inflowCount === 1 ? '' : 's'}`}
+          icon={<ArrowDownIcon />}
         />
         <StatCard
-          label="paid this month"
-          value={String(paidThisMonth.length)}
-          subtitle={paidThisMonth.length === 0 ? '—' : 'all on time'}
-          icon={<CheckIcon />}
+          label={`outgoing · ${monthName.toLowerCase()}`}
+          value={formatCurrency(outflowThisMonth, statCurrency)}
+          subtitle={outflowCount === 0 ? '—' : `${outflowCount} payment${outflowCount === 1 ? '' : 's'}`}
+          icon={<ArrowUpIcon />}
         />
         <StatCard
           label="overdue"
-          value={String(overdue.length)}
-          subtitle={overdue[0]?.name ?? 'nothing'}
+          value={String(overdueCount)}
+          subtitle={
+            overdueCount === 0
+              ? 'all caught up'
+              : `oldest: ${[...inScopeForStats]
+                  .filter((p) => p.status === 'overdue')
+                  .sort(
+                    (a, b) =>
+                      new Date(a.due_date).getTime() -
+                      new Date(b.due_date).getTime(),
+                  )[0]?.name ?? '—'}`
+          }
           icon={<AlertIcon />}
-        />
-        <StatCard
-          label="monthly outflow"
-          value={formatCurrency(monthlyOutflow, homeCurrency)}
-          subtitle={`across ${categories.length} categories`}
-          icon={<ChartIcon />}
         />
       </div>
 
@@ -428,13 +519,44 @@ function Dashboard({
         </div>
 
         <div className="mt-4 flex flex-wrap items-center gap-2">
+          <FilterSelect
+            label="Country"
+            value={filters.countryId}
+            onChange={setCountryFilter}
+            options={[
+              { value: 'all', label: 'All countries' },
+              ...countries.map((c) => ({
+                value: c.id,
+                label: `${c.name} (${c.currency_code})`,
+              })),
+            ]}
+          />
+          <FilterSelect
+            label="Item"
+            value={filters.itemId}
+            onChange={(v) => setFilters({ ...filters, itemId: v })}
+            disabled={availableItems.length === 0}
+            options={[
+              {
+                value: 'all',
+                label:
+                  filters.countryId === 'all' ? 'All items' : 'All items in country',
+              },
+              ...availableItems.map((i) => ({
+                value: i.id,
+                label: `${i.name} · ${i.type}`,
+              })),
+            ]}
+          />
+
           <FilterChip
-            label="All"
-            active={filters.person === 'all' && !filters.overdueOnly}
+            label="Overdue"
+            active={filters.overdueOnly}
             onClick={() =>
-              setFilters({ ...filters, person: 'all', overdueOnly: false })
+              setFilters({ ...filters, overdueOnly: !filters.overdueOnly })
             }
           />
+
           {people.map((p) => (
             <FilterChip
               key={p.id}
@@ -456,13 +578,6 @@ function Dashboard({
                 ...filters,
                 person: filters.person === 'both' ? 'all' : 'both',
               })
-            }
-          />
-          <FilterChip
-            label="Overdue"
-            active={filters.overdueOnly}
-            onClick={() =>
-              setFilters({ ...filters, overdueOnly: !filters.overdueOnly })
             }
           />
 
@@ -498,7 +613,8 @@ function Dashboard({
         <PaymentsTable
           payments={sortedPayments}
           people={people}
-          categories={categories}
+          countries={countries}
+          items={items}
           onEditPayment={onEditPayment}
           onTogglePaid={onTogglePaid}
         />
@@ -549,6 +665,46 @@ function FilterChip({
   )
 }
 
+function FilterSelect({
+  label,
+  value,
+  onChange,
+  options,
+  disabled,
+}: {
+  label: string
+  value: string
+  onChange: (v: string) => void
+  options: { value: string; label: string }[]
+  disabled?: boolean
+}) {
+  return (
+    <div
+      className={cn(
+        'relative inline-flex items-center gap-1.5 rounded-full border border-edge bg-card/60 pl-3 pr-7 text-xs font-medium text-ink-muted',
+        disabled && 'opacity-60',
+      )}
+    >
+      <span className="text-ink-faint">{label}:</span>
+      <select
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        disabled={disabled}
+        className="cursor-pointer appearance-none bg-transparent py-1.5 pr-1 text-xs font-medium text-ink focus:outline-none disabled:cursor-not-allowed"
+      >
+        {options.map((o) => (
+          <option key={o.value} value={o.value}>
+            {o.label}
+          </option>
+        ))}
+      </select>
+      <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-ink-faint">
+        ▾
+      </span>
+    </div>
+  )
+}
+
 function HamburgerIcon() {
   return (
     <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round">
@@ -558,18 +714,17 @@ function HamburgerIcon() {
     </svg>
   )
 }
-function CalendarIcon() {
+function ArrowDownIcon() {
   return (
-    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
-      <rect x="2" y="3" width="12" height="11" rx="1.5" />
-      <path d="M2 6h12M5 1.5v3M11 1.5v3" strokeLinecap="round" />
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M8 3v10M3 8l5 5 5-5" />
     </svg>
   )
 }
-function CheckIcon() {
+function ArrowUpIcon() {
   return (
-    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.8">
-      <path d="M3 8l3.5 3.5L13 5" strokeLinecap="round" strokeLinejoin="round" />
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M8 13V3M3 8l5-5 5 5" />
     </svg>
   )
 }
@@ -578,13 +733,6 @@ function AlertIcon() {
     <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
       <path d="M8 2l6.5 11h-13L8 2z" strokeLinejoin="round" />
       <path d="M8 6.5v3M8 11.5v.01" strokeLinecap="round" />
-    </svg>
-  )
-}
-function ChartIcon() {
-  return (
-    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
-      <path d="M2 14h12M4 11V7M7 11V4M10 11V8M13 11V5" strokeLinecap="round" />
     </svg>
   )
 }

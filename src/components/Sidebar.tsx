@@ -7,8 +7,8 @@ import { TallyMark } from './TallyMark'
 type NavItem = { key: string; label: string; icon: string }
 
 const items: NavItem[] = [
-  { key: 'dashboard', label: 'Dashboard', icon: '⌂' },
-  { key: 'categories', label: 'Categories', icon: '◇' },
+  { key: 'dashboard', label: 'Payments', icon: '⌂' },
+  { key: 'items', label: 'Items', icon: '◇' },
   { key: 'settings', label: 'Settings', icon: '✦' },
 ]
 

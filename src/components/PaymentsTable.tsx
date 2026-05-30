@@ -1,10 +1,11 @@
 import { useEffect, useState } from 'react'
 import type { Payment } from '../state/payments'
 import type { Person } from '../state/household'
-import type { Category } from '../state/categories'
-import { findCategory } from '../state/categories'
+import type { Country } from '../state/country'
+import type { Item } from '../state/item'
+import { findItem } from '../state/item'
+import { findCountry } from '../state/country'
 import { cn, formatCurrency, formatDate, formatMonthYear } from '../lib/utils'
-import { CategoryPill } from './CategoryPill'
 import { StatusPill } from './StatusPill'
 
 const PAGE_SIZE = 25
@@ -18,13 +19,15 @@ function displayPerson(person: string, people: Person[]): string {
 export function PaymentsTable({
   payments,
   people,
-  categories,
+  countries,
+  items,
   onEditPayment,
   onTogglePaid,
 }: {
   payments: Payment[]
   people: Person[]
-  categories: Category[]
+  countries: Country[]
+  items: Item[]
   onEditPayment?: (payment: Payment) => void
   onTogglePaid?: (payment: Payment) => void
 }) {
@@ -48,11 +51,11 @@ export function PaymentsTable({
   return (
     <div className="overflow-hidden rounded-2xl border border-edge bg-card/60">
       <div className="overflow-x-auto">
-        <table className="w-full min-w-[840px] text-left text-sm">
+        <table className="w-full min-w-[900px] text-left text-sm">
           <thead>
             <tr className="border-b border-edge text-xs uppercase tracking-wide text-ink-faint">
               <th className="px-5 py-3 font-medium">Payment</th>
-              <th className="px-5 py-3 font-medium">Category</th>
+              <th className="px-5 py-3 font-medium">Item</th>
               <th className="px-5 py-3 font-medium">For</th>
               <th className="px-5 py-3 font-medium text-right">Amount</th>
               <th className="px-5 py-3 font-medium">Due</th>
@@ -61,53 +64,75 @@ export function PaymentsTable({
             </tr>
           </thead>
           <tbody>
-            {pageRows.map((p) => (
-              <tr
-                key={p.id}
-                onClick={() => onEditPayment?.(p)}
-                className={cn(
-                  'cursor-pointer border-b border-edge/60 last:border-0 transition hover:bg-cream',
-                  p.status === 'paid' && 'opacity-60',
-                )}
-              >
-                <td className="px-5 py-4">
-                  <div className="font-medium text-ink">{p.name}</div>
-                  <div className="mt-0.5 text-xs text-ink-faint">
-                    <span className="capitalize">{p.recurrence}</span>
-                    {p.end_date && p.recurrence !== 'one-off' && (
-                      <span> · ends {formatMonthYear(p.end_date)}</span>
-                    )}
-                  </div>
-                </td>
-                <td className="px-5 py-4">
-                  <CategoryPill category={findCategory(categories, p.category_id)} />
-                </td>
-                <td className="px-5 py-4 text-ink-muted">
-                  {displayPerson(p.person, people)}
-                </td>
-                <td className="px-5 py-4 text-right font-display text-base font-semibold tracking-tight text-ink">
-                  {formatCurrency(p.amount, p.currency)}
-                </td>
-                <td className="px-5 py-4 text-ink-muted">
-                  {formatDate(p.due_date)}
-                </td>
-                <td className="px-5 py-4">
-                  <StatusPill
-                    status={p.status}
-                    dueDate={p.due_date}
-                    paidAt={p.paid_at}
-                  />
-                </td>
-                <td className="px-5 py-4">
-                  {onTogglePaid && (
-                    <PaidCheckbox
-                      paid={p.status === 'paid'}
-                      onToggle={() => onTogglePaid(p)}
-                    />
+            {pageRows.map((p) => {
+              const item = findItem(items, p.item_id)
+              const country = item
+                ? findCountry(countries, item.country_id)
+                : undefined
+              return (
+                <tr
+                  key={p.id}
+                  onClick={() => onEditPayment?.(p)}
+                  className={cn(
+                    'cursor-pointer border-b border-edge/60 last:border-0 transition hover:bg-cream',
+                    p.status === 'paid' && 'opacity-60',
                   )}
-                </td>
-              </tr>
-            ))}
+                >
+                  <td className="px-5 py-4">
+                    <div className="flex items-center gap-2">
+                      <DirectionMark direction={p.direction} />
+                      <div>
+                        <div className="font-medium text-ink">{p.name}</div>
+                        <div className="mt-0.5 text-xs text-ink-faint">
+                          <span className="capitalize">{p.recurrence}</span>
+                          {p.end_date && p.recurrence !== 'one-off' && (
+                            <span> · ends {formatMonthYear(p.end_date)}</span>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  </td>
+                  <td className="px-5 py-4">
+                    {item ? (
+                      <div>
+                        <div className="font-medium text-ink">{item.name}</div>
+                        <div className="mt-0.5 text-xs text-ink-faint">
+                          {country?.name ?? '—'} · {item.type}
+                        </div>
+                      </div>
+                    ) : (
+                      <span className="inline-flex items-center rounded-full bg-edge px-2.5 py-1 text-xs font-medium text-ink-faint">
+                        Unlinked
+                      </span>
+                    )}
+                  </td>
+                  <td className="px-5 py-4 text-ink-muted">
+                    {displayPerson(p.person, people)}
+                  </td>
+                  <td className="px-5 py-4 text-right font-display text-base font-semibold tracking-tight text-ink">
+                    {formatCurrency(p.amount, p.currency)}
+                  </td>
+                  <td className="px-5 py-4 text-ink-muted">
+                    {formatDate(p.due_date)}
+                  </td>
+                  <td className="px-5 py-4">
+                    <StatusPill
+                      status={p.status}
+                      dueDate={p.due_date}
+                      paidAt={p.paid_at}
+                    />
+                  </td>
+                  <td className="px-5 py-4">
+                    {onTogglePaid && (
+                      <PaidCheckbox
+                        paid={p.status === 'paid'}
+                        onToggle={() => onTogglePaid(p)}
+                      />
+                    )}
+                  </td>
+                </tr>
+              )
+            })}
           </tbody>
         </table>
       </div>
@@ -149,6 +174,21 @@ export function PaymentsTable({
         </div>
       )}
     </div>
+  )
+}
+
+function DirectionMark({ direction }: { direction: 'incoming' | 'outgoing' }) {
+  const isIn = direction === 'incoming'
+  return (
+    <span
+      title={isIn ? 'Money coming in' : 'Money going out'}
+      className={cn(
+        'flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-xs font-bold',
+        isIn ? 'bg-sage-soft text-sage' : 'bg-terracotta-soft text-terracotta',
+      )}
+    >
+      {isIn ? '↓' : '↑'}
+    </span>
   )
 }
 

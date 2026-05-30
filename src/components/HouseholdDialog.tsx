@@ -6,7 +6,7 @@ import {
   type Person,
   type PersonColor,
 } from '../state/household'
-import { colorBgClass } from '../state/categories'
+import { colorBgClass } from '../state/colors'
 import { cn } from '../lib/utils'
 import { useHousehold } from '../hooks/useHousehold'
 import { usePeople } from '../hooks/usePeople'

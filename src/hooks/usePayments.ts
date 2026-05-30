@@ -10,6 +10,20 @@ import { useCurrentHousehold } from './useCurrentHousehold'
 
 const TODAY = () => new Date()
 
+export type DeleteScope = 'one' | 'future' | 'all'
+
+// Series identity: payments with the same (name, item_id, recurrence) belong
+// to the same recurring chain. Used to dedup auto-created next instances and
+// to drive the scoped-delete options.
+function applySeriesMatch<T extends { eq: any; is: any }>(
+  q: T,
+  payment: Pick<Payment, 'name' | 'item_id' | 'recurrence'>,
+): T {
+  let r = q.eq('name', payment.name).eq('recurrence', payment.recurrence)
+  r = payment.item_id === null ? r.is('item_id', null) : r.eq('item_id', payment.item_id)
+  return r
+}
+
 export function usePayments() {
   const queryClient = useQueryClient()
   const { householdId } = useCurrentHousehold()
@@ -71,8 +85,46 @@ export function usePayments() {
     onSuccess: invalidate,
   })
 
+  // Scoped delete for recurring payments.
+  //   one    — just this row
+  //   future — this row + all rows in the same series with due_date >= this
+  //   all    — every row in the same series, paid history included
+  const removeScoped = useMutation({
+    mutationFn: async ({
+      payment,
+      scope,
+    }: {
+      payment: Payment
+      scope: DeleteScope
+    }) => {
+      if (scope === 'one' || payment.recurrence === 'one-off') {
+        const { error } = await supabase
+          .from('payments')
+          .delete()
+          .eq('household_id', householdId!)
+          .eq('id', payment.id)
+        if (error) throw error
+        return
+      }
+
+      let q = supabase
+        .from('payments')
+        .delete()
+        .eq('household_id', householdId!)
+      q = applySeriesMatch(q, payment)
+      if (scope === 'future') {
+        q = q.gte('due_date', payment.due_date)
+      }
+      const { error } = await q
+      if (error) throw error
+    },
+    onSuccess: invalidate,
+  })
+
   // Optimistic toggle paid — flip the row immediately, then sync to DB.
-  // If recurring and not past end_date, also creates the next instance.
+  // For recurring rows, also creates the next instance, BUT skips if one
+  // already exists in the same series at the next due date (prevents
+  // duplicates when the user toggles paid → unpaid → paid).
   const togglePaid = useMutation({
     mutationFn: async (payment: Payment) => {
       const today = TODAY()
@@ -106,21 +158,33 @@ export function usePayments() {
         const nextDate = bumpDueDate(payment.due_date, payment.recurrence)
         const pastEnd = payment.end_date && nextDate > payment.end_date
         if (!pastEnd) {
-          const { error: insErr } = await supabase
+          let dedupQ = supabase
             .from('payments')
-            .insert({
-              household_id: householdId!,
-              category_id: payment.category_id,
-              person: payment.person,
-              name: payment.name,
-              amount: payment.amount,
-              currency: payment.currency,
-              due_date: nextDate,
-              recurrence: payment.recurrence,
-              end_date: payment.end_date,
-              status: computeStatus(nextDate, today),
-            })
-          if (insErr) throw insErr
+            .select('id')
+            .eq('household_id', householdId!)
+            .eq('due_date', nextDate)
+          dedupQ = applySeriesMatch(dedupQ, payment)
+          const { data: existing, error: dedupErr } = await dedupQ.limit(1)
+          if (dedupErr) throw dedupErr
+
+          if (!existing || existing.length === 0) {
+            const { error: insErr } = await supabase
+              .from('payments')
+              .insert({
+                household_id: householdId!,
+                item_id: payment.item_id,
+                person: payment.person,
+                name: payment.name,
+                amount: payment.amount,
+                currency: payment.currency,
+                direction: payment.direction,
+                due_date: nextDate,
+                recurrence: payment.recurrence,
+                end_date: payment.end_date,
+                status: computeStatus(nextDate, today),
+              })
+            if (insErr) throw insErr
+          }
         }
       }
     },
@@ -159,6 +223,7 @@ export function usePayments() {
     add: add.mutateAsync,
     update: update.mutateAsync,
     remove: remove.mutateAsync,
+    removeScoped: removeScoped.mutateAsync,
     togglePaid: togglePaid.mutate,
   }
 }

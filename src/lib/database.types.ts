@@ -75,13 +75,12 @@ export type Database = {
         }
         Relationships: []
       }
-      categories: {
+      countries: {
         Row: {
           id: string
           household_id: string
           name: string
-          description: string
-          color: string
+          currency_code: string
           sort_order: number
           created_at: string
         }
@@ -89,14 +88,38 @@ export type Database = {
           id: string
           household_id: string
           name: string
-          description?: string
-          color?: string
+          currency_code: string
           sort_order?: number
         }
         Update: {
           name?: string
-          description?: string
-          color?: string
+          currency_code?: string
+          sort_order?: number
+        }
+        Relationships: []
+      }
+      items: {
+        Row: {
+          id: string
+          household_id: string
+          country_id: string
+          name: string
+          type: string
+          sort_order: number
+          created_at: string
+        }
+        Insert: {
+          id: string
+          household_id: string
+          country_id: string
+          name: string
+          type?: string
+          sort_order?: number
+        }
+        Update: {
+          country_id?: string
+          name?: string
+          type?: string
           sort_order?: number
         }
         Relationships: []
@@ -105,11 +128,12 @@ export type Database = {
         Row: {
           id: string
           household_id: string
-          category_id: string | null
+          item_id: string | null
           person: string
           name: string
           amount: number
           currency: string
+          direction: 'incoming' | 'outgoing'
           due_date: string
           recurrence: 'one-off' | 'monthly' | 'quarterly' | 'yearly'
           end_date: string | null
@@ -123,11 +147,12 @@ export type Database = {
         Insert: {
           id?: string
           household_id: string
-          category_id?: string | null
+          item_id?: string | null
           person?: string
           name: string
           amount: number
           currency?: string
+          direction: 'incoming' | 'outgoing'
           due_date: string
           recurrence?: 'one-off' | 'monthly' | 'quarterly' | 'yearly'
           end_date?: string | null
@@ -137,11 +162,12 @@ export type Database = {
           last_reminder_sent?: string | null
         }
         Update: {
-          category_id?: string | null
+          item_id?: string | null
           person?: string
           name?: string
           amount?: number
           currency?: string
+          direction?: 'incoming' | 'outgoing'
           due_date?: string
           recurrence?: 'one-off' | 'monthly' | 'quarterly' | 'yearly'
           end_date?: string | null

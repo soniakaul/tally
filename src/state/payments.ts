@@ -7,5 +7,6 @@ export type PaymentUpdate = Database['public']['Tables']['payments']['Update']
 
 export type Recurrence = Payment['recurrence']
 export type Status = Payment['status']
+export type Direction = Payment['direction']
 // 'both' is a special marker; any other string is a person id from the household
 export type PaymentPerson = 'both' | string

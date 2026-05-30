@@ -1,5 +1,5 @@
 import { cn } from '../lib/utils'
-import { colorBgClass } from '../state/categories'
+import { colorBgClass } from '../state/colors'
 import { initialOf, type PersonColor } from '../state/household'
 
 export function PersonAvatar({

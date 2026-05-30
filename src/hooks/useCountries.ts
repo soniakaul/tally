@@ -1,22 +1,22 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { supabase } from '../lib/supabase'
 import type {
-  Category,
-  CategoryInsert,
-  CategoryUpdate,
-} from '../state/categories'
+  Country,
+  CountryInsert,
+  CountryUpdate,
+} from '../state/country'
 import { useCurrentHousehold } from './useCurrentHousehold'
 
-export function useCategories() {
+export function useCountries() {
   const queryClient = useQueryClient()
   const { householdId } = useCurrentHousehold()
 
   const query = useQuery({
-    queryKey: ['categories', householdId],
+    queryKey: ['countries', householdId],
     enabled: !!householdId,
-    queryFn: async (): Promise<Category[]> => {
+    queryFn: async (): Promise<Country[]> => {
       const { data, error } = await supabase
-        .from('categories')
+        .from('countries')
         .select('*')
         .eq('household_id', householdId!)
         .order('sort_order', { ascending: true })
@@ -26,13 +26,13 @@ export function useCategories() {
   })
 
   const invalidate = () =>
-    queryClient.invalidateQueries({ queryKey: ['categories', householdId] })
+    queryClient.invalidateQueries({ queryKey: ['countries', householdId] })
 
   const add = useMutation({
-    mutationFn: async (cat: Omit<CategoryInsert, 'household_id'>) => {
+    mutationFn: async (country: Omit<CountryInsert, 'household_id'>) => {
       const { data, error } = await supabase
-        .from('categories')
-        .insert({ ...cat, household_id: householdId! })
+        .from('countries')
+        .insert({ ...country, household_id: householdId! })
         .select()
         .single()
       if (error) throw error
@@ -42,9 +42,9 @@ export function useCategories() {
   })
 
   const update = useMutation({
-    mutationFn: async (args: { id: string; patch: CategoryUpdate }) => {
+    mutationFn: async (args: { id: string; patch: CountryUpdate }) => {
       const { data, error } = await supabase
-        .from('categories')
+        .from('countries')
         .update(args.patch)
         .eq('household_id', householdId!)
         .eq('id', args.id)
@@ -59,7 +59,7 @@ export function useCategories() {
   const remove = useMutation({
     mutationFn: async (id: string) => {
       const { error } = await supabase
-        .from('categories')
+        .from('countries')
         .delete()
         .eq('household_id', householdId!)
         .eq('id', id)
@@ -69,7 +69,7 @@ export function useCategories() {
   })
 
   return {
-    categories: query.data ?? [],
+    countries: query.data ?? [],
     isLoading: query.isLoading,
     error: query.error,
     add: add.mutateAsync,

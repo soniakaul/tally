@@ -11,8 +11,13 @@ import { cn } from '../lib/utils'
 import { useDebouncedSync } from '../hooks/useDebouncedSync'
 import { useHousehold } from '../hooks/useHousehold'
 import { usePeople } from '../hooks/usePeople'
-import { useCategories } from '../hooks/useCategories'
+import { useCountries } from '../hooks/useCountries'
+import { useItems } from '../hooks/useItems'
 import { usePayments } from '../hooks/usePayments'
+import { findItem } from '../state/item'
+import { findCountry } from '../state/country'
+import type { Country } from '../state/country'
+import type { Item } from '../state/item'
 import { useReminders } from '../hooks/useReminders'
 import { useSendReminder } from '../hooks/useSendReminder'
 import type { Payment } from '../state/payments'
@@ -26,7 +31,8 @@ type Props = {
 export function SettingsPage({ fxSnapshot, onDeleteHousehold }: Props) {
   const { household, update: updateHousehold } = useHousehold()
   const { people } = usePeople()
-  const { categories } = useCategories()
+  const { countries } = useCountries()
+  const { items } = useItems()
   const { payments } = usePayments()
   const {
     reminders,
@@ -59,7 +65,8 @@ export function SettingsPage({ fxSnapshot, onDeleteHousehold }: Props) {
       {
         household,
         people,
-        categories,
+        countries,
+        items,
         payments,
         reminders,
         exportedAt: new Date().toISOString(),
@@ -108,7 +115,13 @@ export function SettingsPage({ fxSnapshot, onDeleteHousehold }: Props) {
               {people.length} member{people.length === 1 ? '' : 's'}
             </span>
             <span>·</span>
-            <span>{categories.length} categories</span>
+            <span>
+              {countries.length} countr{countries.length === 1 ? 'y' : 'ies'}
+            </span>
+            <span>·</span>
+            <span>
+              {items.length} item{items.length === 1 ? '' : 's'}
+            </span>
             <span>·</span>
             <span>{payments.length} payments tracked</span>
           </div>
@@ -178,6 +191,8 @@ export function SettingsPage({ fxSnapshot, onDeleteHousehold }: Props) {
               household={household}
               people={people}
               payments={payments}
+              countries={countries}
+              items={items}
               onTemplateChange={(reminder_template) =>
                 void updateHousehold({ reminder_template })
               }
@@ -249,11 +264,15 @@ function WhatsAppPanel({
   household,
   people,
   payments,
+  countries,
+  items,
   onTemplateChange,
 }: {
   household: { reminder_template: string }
   people: Person[]
   payments: Payment[]
+  countries: Country[]
+  items: Item[]
   onTemplateChange: (template: string) => void
 }) {
   const { send, sending, lastResult, reset } = useSendReminder()
@@ -299,7 +318,19 @@ function WhatsAppPanel({
   // Live preview using the chosen payment + person
   const previewPerson = people.find((p) => p.id === personId) ?? null
   const previewPayment = payments.find((p) => p.id === paymentId) ?? null
-  const previewBody = renderPreview(template, previewPerson, previewPayment)
+  const previewItem = previewPayment
+    ? findItem(items, previewPayment.item_id) ?? null
+    : null
+  const previewCountry = previewItem
+    ? findCountry(countries, previewItem.country_id) ?? null
+    : null
+  const previewBody = renderPreview(
+    template,
+    previewPerson,
+    previewPayment,
+    previewItem,
+    previewCountry,
+  )
 
   return (
     <div className="space-y-4">
@@ -466,6 +497,8 @@ function renderPreview(
   template: string,
   person: Person | null,
   payment: Payment | null,
+  item: Item | null,
+  country: Country | null,
 ): string {
   if (!person || !payment) return ''
   const today = new Date()
@@ -501,9 +534,12 @@ function renderPreview(
   const vars: Record<string, string> = {
     name: person.name || 'there',
     payment: payment.name,
-    category: payment.category_id ?? 'Uncategorized',
+    item: item?.name ?? 'Unlinked',
+    country: country?.name ?? '',
+    category: item ? `${item.name} (${item.type})` : 'Unlinked',
     amount: amountFormatted,
     currency: payment.currency,
+    direction: payment.direction,
     when,
   }
   return template.replace(/\{(\w+)\}/g, (_, k) => vars[k] ?? `{${k}}`)
