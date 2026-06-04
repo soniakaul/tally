@@ -1,0 +1,16 @@
+<!--
+  Source SVG for PWA icon generation. 512×512.
+  The tally mark sits in the inner ~70% so maskable icons (which can be
+  cropped up to ~20% by Android launchers) still preserve the brand.
+  Cream stroke on ink background, matching the app palette.
+-->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <rect width="512" height="512" rx="112" fill="#0A0A0A"/>
+  <g stroke="#F4F2EA" stroke-width="42" stroke-linecap="round" fill="none">
+    <line x1="160" y1="160" x2="160" y2="352"/>
+    <line x1="216" y1="160" x2="216" y2="352"/>
+    <line x1="272" y1="160" x2="272" y2="352"/>
+    <line x1="328" y1="160" x2="328" y2="352"/>
+    <line x1="132" y1="360" x2="356" y2="148"/>
+  </g>
+</svg>

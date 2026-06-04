@@ -2,9 +2,24 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+
+    <title>tally</title>
+    <meta name="description" content="Track household payments across countries and items. Encrypted credentials per payment, WhatsApp reminders." />
+
+    <!-- Favicon (browser tab) -->
     <link rel="icon" type="image/svg+xml" href="/favicon.svg?v=2" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>tally — household payments</title>
+
+    <!-- Apple PWA: used when installing via Safari "Add to Dock" on macOS
+         and "Add to Home Screen" on iOS. Modern Safari accepts SVG here. -->
+    <link rel="apple-touch-icon" href="/pwa-source.svg" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+    <meta name="apple-mobile-web-app-title" content="tally" />
+
+    <!-- Theme color: tints the browser chrome on mobile + the title bar of
+         the installed Mac app window. Ink chrome over cream background. -->
+    <meta name="theme-color" content="#0A0A0A" />
   </head>
   <body>
     <div id="root"></div>
