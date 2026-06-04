@@ -28,4 +28,4 @@ dev-dist
 *.sw?
 
 # Private product docs — kept locally, not pushed
-docs/
+#docs/
