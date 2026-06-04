@@ -34,7 +34,7 @@ npm run dev
 
 For the encrypted-credentials feature, also:
 
-1. Apply `supabase/migrations/` in numeric order in the SQL editor
+1. Apply `supabase/schema.sql` in Supabase
 2. `openssl rand -base64 32` → set as `TALLY_CREDS_KEY` in Supabase Edge Function secrets
 3. `supabase functions deploy creds-get creds-set send-reminder whatsapp-webhook`
 
