@@ -33,15 +33,29 @@ export function CountryDialog({
   const [currency, setCurrency] = useState(
     initial?.currency_code ?? 'INR',
   )
+  const [saveError, setSaveError] = useState<string | null>(null)
+  const [saving, setSaving] = useState(false)
 
   const canRemove = isEdit && itemCount === 0
   const trimmedName = name.trim()
+  const trimmedCurrency = currency.trim()
   const duplicate =
     trimmedName.length > 0 &&
     existingNames
       .filter((n) => n.toLowerCase() !== (initial?.name ?? '').toLowerCase())
       .some((n) => n.toLowerCase() === trimmedName.toLowerCase())
-  const canSave = trimmedName.length > 0 && currency.length > 0 && !duplicate
+  const canSave =
+    trimmedName.length > 0 && trimmedCurrency.length > 0 && !duplicate
+
+  // Tells the user exactly which input is blocking save. Surfaces inline so
+  // they don't have to guess why the button is greyed out.
+  const blockedReason = !trimmedName.length
+    ? 'Enter a country name to continue.'
+    : !trimmedCurrency.length
+      ? 'Enter a currency code (like USD or INR) to continue.'
+      : duplicate
+        ? 'You already have a country with this name.'
+        : null
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -71,9 +85,23 @@ export function CountryDialog({
     }
   }
 
-  const handleSave = () => {
-    if (!canSave) return
-    void onSave({ name: trimmedName, currency_code: currency.trim().toUpperCase() })
+  const handleSave = async () => {
+    if (!canSave || saving) return
+    setSaveError(null)
+    setSaving(true)
+    try {
+      await onSave({
+        name: trimmedName,
+        currency_code: trimmedCurrency.toUpperCase(),
+      })
+    } catch (err) {
+      // Surface the DB / network error in the dialog instead of silently
+      // failing. Common cause: a migration (003 or 004) hasn't been applied.
+      const msg =
+        err instanceof Error ? err.message : 'Save failed. Please try again.'
+      setSaveError(msg)
+      setSaving(false)
+    }
   }
 
   return (
@@ -142,7 +170,7 @@ export function CountryDialog({
               onChange={(e) => setCurrency(e.target.value.toUpperCase())}
               list="currency-codes"
               maxLength={6}
-              placeholder="INR"
+              placeholder="e.g. INR"
               className="w-full rounded-lg border border-edge bg-card/60 px-3 py-2 text-base font-mono text-ink placeholder:text-ink-faint focus:border-ink focus:outline-none"
             />
             <datalist id="currency-codes">
@@ -156,6 +184,18 @@ export function CountryDialog({
             </p>
           </div>
         </div>
+
+        {(blockedReason || saveError) && (
+          <div className="px-6 pb-2">
+            {saveError ? (
+              <p className="rounded-lg border border-terracotta/30 bg-terracotta-soft px-3 py-2 text-xs text-terracotta">
+                {saveError}
+              </p>
+            ) : blockedReason ? (
+              <p className="text-xs text-ink-faint">{blockedReason}</p>
+            ) : null}
+          </div>
+        )}
 
         <div className="flex items-center justify-between border-t border-edge px-6 py-4">
           <div>
@@ -187,16 +227,16 @@ export function CountryDialog({
               Cancel
             </button>
             <button
-              onClick={handleSave}
-              disabled={!canSave}
+              onClick={() => void handleSave()}
+              disabled={!canSave || saving}
               className={cn(
                 'rounded-full px-5 py-2 text-sm font-medium transition',
-                canSave
+                canSave && !saving
                   ? 'bg-ink text-cream hover:bg-ink-muted'
                   : 'cursor-not-allowed bg-edge text-ink-faint',
               )}
             >
-              {isEdit ? 'Save' : 'Create country'}
+              {saving ? 'Saving…' : isEdit ? 'Save' : 'Create country'}
             </button>
           </div>
         </div>

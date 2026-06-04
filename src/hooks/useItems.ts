@@ -15,14 +15,17 @@ export function useItems() {
         .from('items')
         .select('*')
         .eq('household_id', householdId!)
+        .is('deleted_at', null)
         .order('sort_order', { ascending: true })
       if (error) throw error
       return data ?? []
     },
   })
 
-  const invalidate = () =>
+  const invalidate = () => {
     queryClient.invalidateQueries({ queryKey: ['items', householdId] })
+    queryClient.invalidateQueries({ queryKey: ['trash', householdId] })
+  }
 
   const add = useMutation({
     mutationFn: async (item: Omit<ItemInsert, 'household_id'>) => {
@@ -52,13 +55,41 @@ export function useItems() {
     onSuccess: invalidate,
   })
 
+  // Soft delete — flips deleted_at instead of removing the row.
   const remove = useMutation({
+    mutationFn: async (id: string) => {
+      const { error } = await supabase
+        .from('items')
+        .update({ deleted_at: new Date().toISOString() })
+        .eq('household_id', householdId!)
+        .eq('id', id)
+      if (error) throw error
+    },
+    onSuccess: invalidate,
+  })
+
+  const restore = useMutation({
+    mutationFn: async (id: string) => {
+      const { error } = await supabase
+        .from('items')
+        .update({ deleted_at: null })
+        .eq('household_id', householdId!)
+        .eq('id', id)
+      if (error) throw error
+    },
+    onSuccess: invalidate,
+  })
+
+  // Hard delete from Trash. Guarded — refuses to delete live rows.
+  // Payments referencing this item are unlinked via the FK ON DELETE SET NULL.
+  const purge = useMutation({
     mutationFn: async (id: string) => {
       const { error } = await supabase
         .from('items')
         .delete()
         .eq('household_id', householdId!)
         .eq('id', id)
+        .not('deleted_at', 'is', null)
       if (error) throw error
     },
     onSuccess: invalidate,
@@ -71,5 +102,7 @@ export function useItems() {
     add: add.mutateAsync,
     update: update.mutateAsync,
     remove: remove.mutateAsync,
+    restore: restore.mutateAsync,
+    purge: purge.mutateAsync,
   }
 }

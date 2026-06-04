@@ -39,10 +39,12 @@ export const COUNTRY_PRESETS: Array<{ name: string; currency: string }> = [
   { name: 'Switzerland', currency: 'CHF' },
 ]
 
-export function newCountryId(existing: string[]): string {
-  let i = existing.length + 1
-  while (existing.includes(`c${i}`)) i++
-  return `c${i}`
+// Random ID so we never collide with soft-deleted rows still in the DB.
+// (The PK constraint covers all rows including those with deleted_at set.)
+// The `existing` arg is kept for API stability but unused.
+export function newCountryId(_existing?: string[]): string {
+  void _existing
+  return `c-${crypto.randomUUID().slice(0, 8)}`
 }
 
 export function findCountry(

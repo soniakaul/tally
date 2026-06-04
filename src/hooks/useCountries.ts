@@ -19,14 +19,17 @@ export function useCountries() {
         .from('countries')
         .select('*')
         .eq('household_id', householdId!)
+        .is('deleted_at', null)
         .order('sort_order', { ascending: true })
       if (error) throw error
       return data ?? []
     },
   })
 
-  const invalidate = () =>
+  const invalidate = () => {
     queryClient.invalidateQueries({ queryKey: ['countries', householdId] })
+    queryClient.invalidateQueries({ queryKey: ['trash', householdId] })
+  }
 
   const add = useMutation({
     mutationFn: async (country: Omit<CountryInsert, 'household_id'>) => {
@@ -56,13 +59,57 @@ export function useCountries() {
     onSuccess: invalidate,
   })
 
+  // Soft delete.
   const remove = useMutation({
     mutationFn: async (id: string) => {
+      const { error } = await supabase
+        .from('countries')
+        .update({ deleted_at: new Date().toISOString() })
+        .eq('household_id', householdId!)
+        .eq('id', id)
+      if (error) throw error
+    },
+    onSuccess: invalidate,
+  })
+
+  const restore = useMutation({
+    mutationFn: async (id: string) => {
+      const { error } = await supabase
+        .from('countries')
+        .update({ deleted_at: null })
+        .eq('household_id', householdId!)
+        .eq('id', id)
+      if (error) throw error
+    },
+    onSuccess: invalidate,
+  })
+
+  // Hard delete from Trash. Two guards:
+  //   1. Only deletes rows that are already soft-deleted (deleted_at != null).
+  //   2. Refuses if ANY item (live OR trashed) still references this country.
+  //      The items→countries FK is ON DELETE CASCADE, so deleting the country
+  //      would silently cascade-kill those items. Force the user to purge
+  //      the items first.
+  const purge = useMutation({
+    mutationFn: async (id: string) => {
+      // Safety: any items still pointing here? (live or trashed)
+      const { count, error: countErr } = await supabase
+        .from('items')
+        .select('id', { head: true, count: 'exact' })
+        .eq('household_id', householdId!)
+        .eq('country_id', id)
+      if (countErr) throw countErr
+      if ((count ?? 0) > 0) {
+        throw new Error(
+          `Can't delete this country — ${count} item${count === 1 ? '' : 's'} still reference it. Delete those items first.`,
+        )
+      }
       const { error } = await supabase
         .from('countries')
         .delete()
         .eq('household_id', householdId!)
         .eq('id', id)
+        .not('deleted_at', 'is', null)
       if (error) throw error
     },
     onSuccess: invalidate,
@@ -75,5 +122,7 @@ export function useCountries() {
     add: add.mutateAsync,
     update: update.mutateAsync,
     remove: remove.mutateAsync,
+    restore: restore.mutateAsync,
+    purge: purge.mutateAsync,
   }
 }

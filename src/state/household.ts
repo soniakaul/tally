@@ -21,8 +21,8 @@ export function nextColor(used: (string | PersonColor)[]): PersonColor {
   return nextAppColor(used)
 }
 
-export function newPersonId(existing: string[]): string {
-  let i = existing.length + 1
-  while (existing.includes(`p${i}`)) i++
-  return `p${i}`
+// Random ID so we never collide with soft-deleted rows still in the DB.
+export function newPersonId(_existing?: string[]): string {
+  void _existing
+  return `p-${crypto.randomUUID().slice(0, 8)}`
 }

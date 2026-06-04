@@ -11,6 +11,7 @@ import {
 } from './components/PaymentDialog'
 import { ItemsPage } from './pages/ItemsPage'
 import { SettingsPage } from './pages/SettingsPage'
+import { TrashPage } from './pages/TrashPage'
 import type { Payment } from './state/payments'
 import type { Household, Person } from './state/household'
 import type { Country } from './state/country'
@@ -21,6 +22,7 @@ import {
   convertToHome,
   formatCurrency,
   formatToday,
+  parseLocalDate,
 } from './lib/utils'
 import {
   coldStartSnapshot,
@@ -60,6 +62,7 @@ function AppShell() {
     add: addPayment,
     update: updatePayment,
     removeScoped: removeScopedPayment,
+    updateScoped: updateScopedPayment,
     togglePaid,
   } = usePayments()
   const { reminders, remove: removeReminder } = useReminders()
@@ -96,23 +99,42 @@ function AppShell() {
       })
   }, [])
 
-  const handleSavePayment = async (payload: PaymentSavePayload) => {
+  // Returns the saved Payment so PaymentDialog can chain credential writes
+  // (which need the new id). Does NOT close the dialog — PaymentDialog
+  // closes itself via onClose once its save chain finishes.
+  //
+  // scope is honored on edits. 'one' or for non-recurring rows = a regular
+  // single-row update. 'future' or 'all' fan the patch out to the series
+  // via updateScoped (which strips per-instance fields like due_date).
+  const handleSavePayment = async (
+    payload: PaymentSavePayload,
+    scope: 'one' | 'future' | 'all',
+  ): Promise<Payment | null> => {
     if (editingPayment) {
-      const status =
+      const status: 'upcoming' | 'overdue' | 'paid' =
         editingPayment.status === 'paid'
           ? 'paid'
           : computeStatus(payload.due_date as string, TODAY)
-      await updatePayment({
+      const patch = { ...payload, status }
+      if (scope !== 'one') {
+        await updateScopedPayment({
+          payment: editingPayment,
+          patch,
+          scope,
+        })
+        return editingPayment
+      }
+      const updated = await updatePayment({
         id: editingPayment.id,
-        patch: { ...payload, status },
+        patch,
       })
-    } else {
-      await addPayment({
-        ...payload,
-        status: computeStatus(payload.due_date as string, TODAY),
-      })
+      return updated ?? null
     }
-    setEditingPayment(undefined)
+    const created = await addPayment({
+      ...payload,
+      status: computeStatus(payload.due_date as string, TODAY),
+    })
+    return created ?? null
   }
 
   const handleRemovePayment = async (
@@ -133,8 +155,6 @@ function AppShell() {
     setActivePage(key)
     setSidebarOpen(false)
   }
-
-  const canAddPayment = countries.length > 0 && items.length > 0
 
   return (
     <div className="flex h-screen bg-cream">
@@ -175,26 +195,14 @@ function AppShell() {
               {activePage === 'dashboard' && (
                 <button
                   onClick={() => setEditingPayment(null)}
-                  disabled={!canAddPayment}
-                  title={
-                    canAddPayment
-                      ? 'Add payment'
-                      : 'Add a country and item first'
-                  }
-                  className={cn(
-                    'group inline-flex items-center gap-2 rounded-full px-3 py-2 text-sm font-medium transition md:px-5 md:py-2.5',
-                    canAddPayment
-                      ? 'bg-ink text-cream hover:bg-ink-muted'
-                      : 'cursor-not-allowed bg-edge text-ink-faint',
-                  )}
+                  title="Add payment"
+                  className="group inline-flex items-center gap-2 rounded-full bg-ink px-3 py-2 text-sm font-medium text-cream transition hover:bg-ink-muted md:px-5 md:py-2.5"
                 >
                   <span>+</span>
                   <span className="hidden md:inline">Add payment</span>
-                  {canAddPayment && (
-                    <span className="hidden transition group-hover:translate-x-0.5 md:inline">
-                      →
-                    </span>
-                  )}
+                  <span className="hidden transition group-hover:translate-x-0.5 md:inline">
+                    →
+                  </span>
                 </button>
               )}
             </div>
@@ -225,6 +233,7 @@ function AppShell() {
             />
           )}
           {activePage === 'items' && <ItemsPage />}
+          {activePage === 'trash' && <TrashPage />}
           {activePage === 'settings' && (
             <SettingsPage
               fxSnapshot={fxSnapshot}
@@ -244,6 +253,7 @@ function AppShell() {
           countries={countries}
           items={items}
           people={people}
+          payments={payments}
           onSave={handleSavePayment}
           onRemove={editingPayment ? handleRemovePayment : undefined}
           onTogglePaid={
@@ -271,7 +281,9 @@ type DashboardFilters = {
 }
 
 function isSameMonth(iso: string, ref: Date): boolean {
-  const d = new Date(iso)
+  // Parse as local — a YYYY-MM-DD due_date should mean that calendar date
+  // regardless of the user's timezone.
+  const d = parseLocalDate(iso)
   return (
     d.getFullYear() === ref.getFullYear() && d.getMonth() === ref.getMonth()
   )
@@ -414,7 +426,7 @@ function Dashboard({
     const sa = a.status === 'overdue' ? -1 : a.status === 'paid' ? 1 : 0
     const sb = b.status === 'overdue' ? -1 : b.status === 'paid' ? 1 : 0
     if (sa !== sb) return sa - sb
-    return new Date(a.due_date).getTime() - new Date(b.due_date).getTime()
+    return parseLocalDate(a.due_date).getTime() - parseLocalDate(b.due_date).getTime()
   })
 
   const currencySymbol = formatCurrency(0, homeCurrency).replace(
@@ -489,8 +501,8 @@ function Dashboard({
                   .filter((p) => p.status === 'overdue')
                   .sort(
                     (a, b) =>
-                      new Date(a.due_date).getTime() -
-                      new Date(b.due_date).getTime(),
+                      parseLocalDate(a.due_date).getTime() -
+                      parseLocalDate(b.due_date).getTime(),
                   )[0]?.name ?? '—'}`
           }
           icon={<AlertIcon />}

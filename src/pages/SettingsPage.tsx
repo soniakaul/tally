@@ -7,7 +7,7 @@ import {
   type ReminderRule,
 } from '../state/settings'
 import type { FxSnapshot } from '../lib/fx'
-import { cn } from '../lib/utils'
+import { cn, relativeDays } from '../lib/utils'
 import { useDebouncedSync } from '../hooks/useDebouncedSync'
 import { useHousehold } from '../hooks/useHousehold'
 import { usePeople } from '../hooks/usePeople'
@@ -364,14 +364,23 @@ function WhatsAppPanel({
           rows={6}
           className="w-full rounded-lg border border-edge bg-cream/60 px-3 py-2 font-mono text-xs leading-relaxed text-ink focus:border-ink focus:outline-none"
         />
-        <p className="mt-1.5 text-[11px] text-ink-faint">
-          Variables you can use:{' '}
+        <p className="mt-1.5 text-[11px] leading-relaxed text-ink-faint">
+          Variables:{' '}
           <code className="text-ink">{'{name}'}</code>{' '}
           <code className="text-ink">{'{payment}'}</code>{' '}
-          <code className="text-ink">{'{category}'}</code>{' '}
           <code className="text-ink">{'{amount}'}</code>{' '}
           <code className="text-ink">{'{currency}'}</code>{' '}
-          <code className="text-ink">{'{when}'}</code>
+          <code className="text-ink">{'{when}'}</code>{' '}
+          <code className="text-ink">{'{item}'}</code>{' '}
+          <code className="text-ink">{'{country}'}</code>{' '}
+          <code className="text-ink">{'{portal_name}'}</code>{' '}
+          <code className="text-ink">{'{bank_name}'}</code>{' '}
+          <code className="text-ink">{'{notes}'}</code>
+          <br />
+          <span className="text-terracotta">
+            Credentials are never available in templates — they only show in
+            the portal after a Show tap.
+          </span>
         </p>
       </div>
 
@@ -501,12 +510,9 @@ function renderPreview(
   country: Country | null,
 ): string {
   if (!person || !payment) return ''
-  const today = new Date()
-  const due = new Date(payment.due_date)
-  const diffDays = Math.round(
-    (due.setHours(0, 0, 0, 0) - new Date(today).setHours(0, 0, 0, 0)) /
-      (1000 * 60 * 60 * 24),
-  )
+  // Use the shared local-date helper so the preview matches what mom
+  // actually sees in the dashboard.
+  const diffDays = relativeDays(payment.due_date)
   const when =
     diffDays < 0
       ? `${Math.abs(diffDays)} day${Math.abs(diffDays) === 1 ? '' : 's'} ago`
@@ -541,6 +547,9 @@ function renderPreview(
     currency: payment.currency,
     direction: payment.direction,
     when,
+    portal_name: payment.portal_name ?? '',
+    bank_name: payment.bank_name ?? '',
+    notes: payment.notes ?? '',
   }
   return template.replace(/\{(\w+)\}/g, (_, k) => vars[k] ?? `{${k}}`)
 }

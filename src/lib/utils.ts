@@ -18,15 +18,37 @@ export function formatCurrency(amount: number, currency: string) {
   }).format(amount)
 }
 
+// Parse a "YYYY-MM-DD" date string as a LOCAL date (no UTC shift).
+//
+// `new Date("2026-05-30")` parses to UTC midnight. In a negative-offset
+// timezone (e.g. US Pacific) that's the previous calendar day in local
+// time, which silently breaks every date display and "X days ago" calc.
+// Use this helper for any date-only string that came from the DB or the
+// date input field.
+export function parseLocalDate(iso: string): Date {
+  const [y, m, d] = iso.split('-').map(Number)
+  return new Date(y, (m ?? 1) - 1, d ?? 1)
+}
+
+// Format a local Date back to a "YYYY-MM-DD" string. Inverse of parseLocalDate.
+// Don't use toISOString().slice(0,10) for this — that goes through UTC and
+// can shift the day.
+export function formatLocalYMD(d: Date): string {
+  const y = d.getFullYear()
+  const m = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  return `${y}-${m}-${day}`
+}
+
 export function formatDate(iso: string) {
-  return new Date(iso).toLocaleDateString('en-US', {
+  return parseLocalDate(iso).toLocaleDateString('en-US', {
     month: 'short',
     day: 'numeric',
   })
 }
 
 export function formatMonthYear(iso: string): string {
-  return new Date(iso).toLocaleDateString('en-US', {
+  return parseLocalDate(iso).toLocaleDateString('en-US', {
     month: 'short',
     year: 'numeric',
   })
@@ -45,9 +67,12 @@ export function formatToday(date: Date): string {
 const MS_PER_DAY = 1000 * 60 * 60 * 24
 
 export function relativeDays(iso: string, today = new Date()) {
-  const due = new Date(iso)
-  const diffMs = due.setHours(0, 0, 0, 0) - new Date(today).setHours(0, 0, 0, 0)
-  return Math.round(diffMs / MS_PER_DAY)
+  // Both sides in local-midnight terms so the diff is in whole local days.
+  const due = parseLocalDate(iso)
+  due.setHours(0, 0, 0, 0)
+  const ref = new Date(today)
+  ref.setHours(0, 0, 0, 0)
+  return Math.round((due.getTime() - ref.getTime()) / MS_PER_DAY)
 }
 
 export function relativeDueLabel(iso: string, today = new Date()) {
@@ -63,7 +88,7 @@ export function relativeDueLabel(iso: string, today = new Date()) {
 export type Recurrence = 'one-off' | 'monthly' | 'quarterly' | 'yearly'
 
 export function bumpDueDate(iso: string, recurrence: Recurrence): string {
-  const d = new Date(iso)
+  const d = parseLocalDate(iso)
   if (recurrence === 'monthly') {
     d.setMonth(d.getMonth() + 1)
   } else if (recurrence === 'quarterly') {
@@ -73,7 +98,7 @@ export function bumpDueDate(iso: string, recurrence: Recurrence): string {
   } else {
     return iso
   }
-  return d.toISOString().slice(0, 10)
+  return formatLocalYMD(d)
 }
 
 export function computeStatus(

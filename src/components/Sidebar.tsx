@@ -9,6 +9,7 @@ type NavItem = { key: string; label: string; icon: string }
 const items: NavItem[] = [
   { key: 'dashboard', label: 'Payments', icon: '⌂' },
   { key: 'items', label: 'Items', icon: '◇' },
+  { key: 'trash', label: 'Trash', icon: '⊘' },
   { key: 'settings', label: 'Settings', icon: '✦' },
 ]
 

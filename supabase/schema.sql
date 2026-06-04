@@ -32,28 +32,48 @@ CREATE TABLE IF NOT EXISTS people (
   color TEXT NOT NULL DEFAULT 'sage',
   sort_order INTEGER NOT NULL DEFAULT 0,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  deleted_at TIMESTAMPTZ,
   PRIMARY KEY (household_id, id)
 );
 
-CREATE TABLE IF NOT EXISTS categories (
+CREATE TABLE IF NOT EXISTS countries (
   id TEXT NOT NULL,
   household_id UUID NOT NULL REFERENCES households(id) ON DELETE CASCADE,
   name TEXT NOT NULL,
-  description TEXT NOT NULL DEFAULT '',
-  color TEXT NOT NULL DEFAULT 'sage',
+  currency_code TEXT NOT NULL,
   sort_order INTEGER NOT NULL DEFAULT 0,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  deleted_at TIMESTAMPTZ,
   PRIMARY KEY (household_id, id)
 );
+
+CREATE TABLE IF NOT EXISTS items (
+  id TEXT NOT NULL,
+  household_id UUID NOT NULL REFERENCES households(id) ON DELETE CASCADE,
+  country_id TEXT NOT NULL,
+  name TEXT NOT NULL,
+  type TEXT NOT NULL DEFAULT 'Property',
+  sort_order INTEGER NOT NULL DEFAULT 0,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  deleted_at TIMESTAMPTZ,
+  PRIMARY KEY (household_id, id),
+  FOREIGN KEY (household_id, country_id) REFERENCES countries(household_id, id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_items_household_country
+  ON items(household_id, country_id);
+CREATE INDEX IF NOT EXISTS idx_items_household_live
+  ON items(household_id) WHERE deleted_at IS NULL;
 
 CREATE TABLE IF NOT EXISTS payments (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   household_id UUID NOT NULL REFERENCES households(id) ON DELETE CASCADE,
-  category_id TEXT,
+  item_id TEXT,
   person TEXT NOT NULL DEFAULT 'both', -- references people.id within household, or 'both'
   name TEXT NOT NULL,
   amount NUMERIC(15, 2) NOT NULL,
   currency TEXT NOT NULL DEFAULT 'INR',
+  direction TEXT NOT NULL CHECK (direction IN ('incoming', 'outgoing')),
   due_date DATE NOT NULL,
   recurrence TEXT NOT NULL DEFAULT 'monthly'
     CHECK (recurrence IN ('one-off', 'monthly', 'quarterly', 'yearly')),
@@ -65,14 +85,46 @@ CREATE TABLE IF NOT EXISTS payments (
   last_reminder_sent TIMESTAMPTZ,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-  -- composite FK so category must belong to the same household
-  FOREIGN KEY (household_id, category_id) REFERENCES categories(household_id, id) ON DELETE SET NULL
+  deleted_at TIMESTAMPTZ,
+  -- Payment details (non-sensitive)
+  portal_name TEXT,
+  bank_name TEXT,
+  notes TEXT,
+  -- Encrypted credentials (12-byte IV || AES-256-GCM ciphertext+tag)
+  portal_username_ct BYTEA,
+  portal_password_ct BYTEA,
+  bank_username_ct BYTEA,
+  bank_password_ct BYTEA,
+  has_credentials BOOLEAN GENERATED ALWAYS AS (
+    portal_username_ct IS NOT NULL OR
+    portal_password_ct IS NOT NULL OR
+    bank_username_ct   IS NOT NULL OR
+    bank_password_ct   IS NOT NULL
+  ) STORED,
+  -- composite FK so item must belong to the same household
+  FOREIGN KEY (household_id, item_id) REFERENCES items(household_id, id) ON DELETE SET NULL
 );
+
+CREATE TABLE IF NOT EXISTS creds_access_log (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id UUID NOT NULL,
+  payment_id UUID,
+  action TEXT NOT NULL CHECK (action IN ('read', 'write')),
+  succeeded BOOLEAN NOT NULL DEFAULT true,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_creds_log_user_action_time
+  ON creds_access_log(user_id, action, created_at DESC);
 
 CREATE INDEX IF NOT EXISTS idx_payments_household_due
   ON payments(household_id, due_date);
 CREATE INDEX IF NOT EXISTS idx_payments_household_status
   ON payments(household_id, status);
+CREATE INDEX IF NOT EXISTS idx_payments_household_item
+  ON payments(household_id, item_id);
+CREATE INDEX IF NOT EXISTS idx_payments_household_live
+  ON payments(household_id) WHERE deleted_at IS NULL;
 
 CREATE TABLE IF NOT EXISTS reminder_rules (
   id TEXT NOT NULL,
@@ -84,6 +136,19 @@ CREATE TABLE IF NOT EXISTS reminder_rules (
   PRIMARY KEY (household_id, id)
 );
 
+-- WhatsApp reply resolution: pending disambiguation menu per phone number.
+CREATE TABLE IF NOT EXISTS whatsapp_pending_choice (
+  phone TEXT PRIMARY KEY,
+  household_id UUID NOT NULL REFERENCES households(id) ON DELETE CASCADE,
+  person_id TEXT NOT NULL,
+  payment_ids UUID[] NOT NULL,
+  action TEXT NOT NULL DEFAULT 'PAID'
+    CHECK (action IN ('PAID', 'SNOOZE')),
+  snooze_days INTEGER,
+  expires_at TIMESTAMPTZ NOT NULL DEFAULT (now() + interval '15 minutes'),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
 -- --------------------------------------------------------------------------
 -- ROW LEVEL SECURITY — every table scoped to the user's household
 -- --------------------------------------------------------------------------
@@ -91,9 +156,12 @@ CREATE TABLE IF NOT EXISTS reminder_rules (
 ALTER TABLE households ENABLE ROW LEVEL SECURITY;
 ALTER TABLE profiles ENABLE ROW LEVEL SECURITY;
 ALTER TABLE people ENABLE ROW LEVEL SECURITY;
-ALTER TABLE categories ENABLE ROW LEVEL SECURITY;
+ALTER TABLE countries ENABLE ROW LEVEL SECURITY;
+ALTER TABLE items ENABLE ROW LEVEL SECURITY;
 ALTER TABLE payments ENABLE ROW LEVEL SECURITY;
 ALTER TABLE reminder_rules ENABLE ROW LEVEL SECURITY;
+ALTER TABLE whatsapp_pending_choice ENABLE ROW LEVEL SECURITY;
+ALTER TABLE creds_access_log ENABLE ROW LEVEL SECURITY;
 
 -- Helper inlined into every policy: this user's household_id
 -- (using a SELECT subquery keeps RLS evaluable and uses the index on profiles)
@@ -127,7 +195,7 @@ DO $$
 DECLARE
   tbl TEXT;
 BEGIN
-  FOREACH tbl IN ARRAY ARRAY['people', 'categories', 'payments', 'reminder_rules']
+  FOREACH tbl IN ARRAY ARRAY['people', 'countries', 'items', 'payments', 'reminder_rules']
   LOOP
     EXECUTE format('DROP POLICY IF EXISTS "%I_all_own" ON %I', tbl, tbl);
     EXECUTE format($q$
@@ -203,20 +271,7 @@ BEGIN
     ('mom', v_household_id, 'Mom', 'tan', 0),
     ('dad', v_household_id, 'Dad', 'moss', 1);
 
-  -- Default categories
-  INSERT INTO categories (id, household_id, name, description, color, sort_order) VALUES
-    ('india-real-estate', v_household_id, 'India real estate',
-      'Property taxes, society charges, maintenance', 'tan', 0),
-    ('us-real-estate', v_household_id, 'US real estate',
-      'Mortgage, property tax, HOA fees', 'moss', 1),
-    ('banking', v_household_id, 'Banking',
-      'Loans, credit cards, EMI obligations', 'terracotta', 2),
-    ('utilities', v_household_id, 'Utilities',
-      'Electricity, water, gas, internet', 'olive', 3),
-    ('insurance', v_household_id, 'Insurance',
-      'Life, health, vehicle policies', 'amber', 4),
-    ('subscriptions', v_household_id, 'Subscriptions',
-      'Streaming, software, memberships', 'sage', 5);
+  -- Countries and items are user-defined; nothing to seed here.
 
   -- Default reminder rules
   INSERT INTO reminder_rules (id, household_id, offset_days, enabled, sort_order) VALUES

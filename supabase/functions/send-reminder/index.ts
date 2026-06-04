@@ -153,14 +153,25 @@ Deno.serve(async (req) => {
       )
     }
 
-    let categoryName = 'Uncategorized'
-    if (payment.category_id) {
-      const { data: cat } = await userClient
-        .from('categories')
-        .select('name')
-        .eq('id', payment.category_id)
+    let itemName = 'Unlinked'
+    let itemType = ''
+    let countryName = ''
+    if (payment.item_id) {
+      const { data: item } = await userClient
+        .from('items')
+        .select('name, type, country_id')
+        .eq('id', payment.item_id)
         .single()
-      if (cat) categoryName = cat.name
+      if (item) {
+        itemName = item.name
+        itemType = item.type
+        const { data: country } = await userClient
+          .from('countries')
+          .select('name')
+          .eq('id', item.country_id)
+          .single()
+        if (country) countryName = country.name
+      }
     }
 
     const { data: household } = await userClient
@@ -172,14 +183,27 @@ Deno.serve(async (req) => {
       household?.reminder_template ??
       'Hi {name}! {payment} is due {when} — {amount} {currency}. Reply PAID when done.'
 
+    // Payment details (non-sensitive). Credentials are NEVER referenced in
+    // templates — they live behind the creds-get edge function only.
+    const portalName = (payment.portal_name as string | null) ?? ''
+    const bankName = (payment.bank_name as string | null) ?? ''
+    const notes = (payment.notes as string | null) ?? ''
+
     const vars: Record<string, string> = {
       name: person.name || 'there',
       payment: payment.name,
-      category: categoryName,
+      item: itemName,
+      country: countryName,
+      // Keep {category} for backwards-compat with existing templates
+      category: itemType ? `${itemName} (${itemType})` : itemName,
       amount: formatAmount(Number(payment.amount), payment.currency),
       currency: payment.currency,
+      direction: payment.direction ?? '',
       when: relativeDueLabel(payment.due_date),
       due_date: formatLongDate(payment.due_date),
+      portal_name: portalName,
+      bank_name: bankName,
+      notes,
     }
     const renderedBody = renderTemplate(template, vars)
 

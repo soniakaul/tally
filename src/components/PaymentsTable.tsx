@@ -82,7 +82,17 @@ export function PaymentsTable({
                     <div className="flex items-center gap-2">
                       <DirectionMark direction={p.direction} />
                       <div>
-                        <div className="font-medium text-ink">{p.name}</div>
+                        <div className="flex items-center gap-1.5 font-medium text-ink">
+                          {p.name}
+                          {p.has_credentials && (
+                            <span
+                              title="Credentials saved (encrypted)"
+                              className="text-[11px] text-sage"
+                            >
+                              🔒
+                            </span>
+                          )}
+                        </div>
                         <div className="mt-0.5 text-xs text-ink-faint">
                           <span className="capitalize">{p.recurrence}</span>
                           {p.end_date && p.recurrence !== 'one-off' && (

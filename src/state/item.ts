@@ -7,10 +7,10 @@ export type ItemUpdate = Database['public']['Tables']['items']['Update']
 // Suggested item types — user can type any string.
 export const ITEM_TYPE_SUGGESTIONS = ['Property', 'Company'] as const
 
-export function newItemId(existing: string[]): string {
-  let i = existing.length + 1
-  while (existing.includes(`i${i}`)) i++
-  return `i${i}`
+// Random ID so we never collide with soft-deleted rows still in the DB.
+export function newItemId(_existing?: string[]): string {
+  void _existing
+  return `i-${crypto.randomUUID().slice(0, 8)}`
 }
 
 export function findItem(items: Item[], id: string | null): Item | undefined {

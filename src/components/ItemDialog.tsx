@@ -37,12 +37,22 @@ export function ItemDialog({
   const [countryId, setCountryId] = useState(
     initial?.country_id ?? defaultCountryId ?? countries[0]?.id ?? '',
   )
+  const [saveError, setSaveError] = useState<string | null>(null)
+  const [saving, setSaving] = useState(false)
 
   const trimmedName = name.trim()
   const trimmedType = type.trim()
   const canSave =
     trimmedName.length > 0 && trimmedType.length > 0 && countryId.length > 0
   const canRemove = isEdit && paymentCount === 0
+
+  const blockedReason = !trimmedName.length
+    ? 'Enter an item name to continue.'
+    : !trimmedType.length
+      ? 'Enter a type (e.g. Property, Company) to continue.'
+      : !countryId.length
+        ? 'Pick a country to continue.'
+        : null
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -54,9 +64,22 @@ export function ItemDialog({
 
   const typeOptions = distinctItemTypes(allItems)
 
-  const handleSave = () => {
-    if (!canSave) return
-    void onSave({ name: trimmedName, type: trimmedType, country_id: countryId })
+  const handleSave = async () => {
+    if (!canSave || saving) return
+    setSaveError(null)
+    setSaving(true)
+    try {
+      await onSave({
+        name: trimmedName,
+        type: trimmedType,
+        country_id: countryId,
+      })
+    } catch (err) {
+      const msg =
+        err instanceof Error ? err.message : 'Save failed. Please try again.'
+      setSaveError(msg)
+      setSaving(false)
+    }
   }
 
   return (
@@ -144,6 +167,18 @@ export function ItemDialog({
           </div>
         </div>
 
+        {(blockedReason || saveError) && (
+          <div className="px-6 pb-2">
+            {saveError ? (
+              <p className="rounded-lg border border-terracotta/30 bg-terracotta-soft px-3 py-2 text-xs text-terracotta">
+                {saveError}
+              </p>
+            ) : blockedReason ? (
+              <p className="text-xs text-ink-faint">{blockedReason}</p>
+            ) : null}
+          </div>
+        )}
+
         <div className="flex items-center justify-between border-t border-edge px-6 py-4">
           <div>
             {isEdit && onRemove && (
@@ -174,16 +209,16 @@ export function ItemDialog({
               Cancel
             </button>
             <button
-              onClick={handleSave}
-              disabled={!canSave}
+              onClick={() => void handleSave()}
+              disabled={!canSave || saving}
               className={cn(
                 'rounded-full px-5 py-2 text-sm font-medium transition',
-                canSave
+                canSave && !saving
                   ? 'bg-ink text-cream hover:bg-ink-muted'
                   : 'cursor-not-allowed bg-edge text-ink-faint',
               )}
             >
-              {isEdit ? 'Save' : 'Create item'}
+              {saving ? 'Saving…' : isEdit ? 'Save' : 'Create item'}
             </button>
           </div>
         </div>

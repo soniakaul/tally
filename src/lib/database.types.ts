@@ -58,6 +58,7 @@ export type Database = {
           color: string
           sort_order: number
           created_at: string
+          deleted_at: string | null
         }
         Insert: {
           id: string
@@ -66,12 +67,14 @@ export type Database = {
           whatsapp?: string
           color?: string
           sort_order?: number
+          deleted_at?: string | null
         }
         Update: {
           name?: string
           whatsapp?: string
           color?: string
           sort_order?: number
+          deleted_at?: string | null
         }
         Relationships: []
       }
@@ -83,6 +86,7 @@ export type Database = {
           currency_code: string
           sort_order: number
           created_at: string
+          deleted_at: string | null
         }
         Insert: {
           id: string
@@ -90,11 +94,13 @@ export type Database = {
           name: string
           currency_code: string
           sort_order?: number
+          deleted_at?: string | null
         }
         Update: {
           name?: string
           currency_code?: string
           sort_order?: number
+          deleted_at?: string | null
         }
         Relationships: []
       }
@@ -107,6 +113,7 @@ export type Database = {
           type: string
           sort_order: number
           created_at: string
+          deleted_at: string | null
         }
         Insert: {
           id: string
@@ -115,12 +122,14 @@ export type Database = {
           name: string
           type?: string
           sort_order?: number
+          deleted_at?: string | null
         }
         Update: {
           country_id?: string
           name?: string
           type?: string
           sort_order?: number
+          deleted_at?: string | null
         }
         Relationships: []
       }
@@ -143,6 +152,11 @@ export type Database = {
           last_reminder_sent: string | null
           created_at: string
           updated_at: string
+          deleted_at: string | null
+          portal_name: string | null
+          bank_name: string | null
+          notes: string | null
+          has_credentials: boolean
         }
         Insert: {
           id?: string
@@ -160,6 +174,10 @@ export type Database = {
           paid_at?: string | null
           paid_via?: 'portal' | 'whatsapp' | null
           last_reminder_sent?: string | null
+          deleted_at?: string | null
+          portal_name?: string | null
+          bank_name?: string | null
+          notes?: string | null
         }
         Update: {
           item_id?: string | null
@@ -175,6 +193,10 @@ export type Database = {
           paid_at?: string | null
           paid_via?: 'portal' | 'whatsapp' | null
           last_reminder_sent?: string | null
+          deleted_at?: string | null
+          portal_name?: string | null
+          bank_name?: string | null
+          notes?: string | null
         }
         Relationships: []
       }
@@ -215,6 +237,14 @@ export type Database = {
           p_username: string
           p_email: string
           p_household_name: string
+        }
+        Returns: string
+      }
+      clone_payment_next_recurrence: {
+        Args: {
+          source_payment_id: string
+          next_due_date: string
+          next_status: 'upcoming' | 'overdue'
         }
         Returns: string
       }

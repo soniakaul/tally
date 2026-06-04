@@ -15,14 +15,17 @@ export function usePeople() {
         .from('people')
         .select('*')
         .eq('household_id', householdId!)
+        .is('deleted_at', null)
         .order('sort_order', { ascending: true })
       if (error) throw error
       return data ?? []
     },
   })
 
-  const invalidate = () =>
+  const invalidate = () => {
     queryClient.invalidateQueries({ queryKey: ['people', householdId] })
+    queryClient.invalidateQueries({ queryKey: ['trash', householdId] })
+  }
 
   const add = useMutation({
     mutationFn: async (person: Omit<PersonInsert, 'household_id'>) => {
@@ -52,13 +55,41 @@ export function usePeople() {
     onSuccess: invalidate,
   })
 
+  // Soft delete.
   const remove = useMutation({
+    mutationFn: async (id: string) => {
+      const { error } = await supabase
+        .from('people')
+        .update({ deleted_at: new Date().toISOString() })
+        .eq('household_id', householdId!)
+        .eq('id', id)
+      if (error) throw error
+    },
+    onSuccess: invalidate,
+  })
+
+  const restore = useMutation({
+    mutationFn: async (id: string) => {
+      const { error } = await supabase
+        .from('people')
+        .update({ deleted_at: null })
+        .eq('household_id', householdId!)
+        .eq('id', id)
+      if (error) throw error
+    },
+    onSuccess: invalidate,
+  })
+
+  // Hard delete from Trash. payments.person is plain text, so no cascade
+  // risk — orphaned references just display as "—" in the For column.
+  const purge = useMutation({
     mutationFn: async (id: string) => {
       const { error } = await supabase
         .from('people')
         .delete()
         .eq('household_id', householdId!)
         .eq('id', id)
+        .not('deleted_at', 'is', null)
       if (error) throw error
     },
     onSuccess: invalidate,
@@ -71,5 +102,7 @@ export function usePeople() {
     add: add.mutateAsync,
     update: update.mutateAsync,
     remove: remove.mutateAsync,
+    restore: restore.mutateAsync,
+    purge: purge.mutateAsync,
   }
 }
