@@ -1,6 +1,18 @@
 -- ============================================================================
--- Tally schema — paste this whole file into Supabase SQL Editor and run it.
--- Safe to re-run: uses IF NOT EXISTS / CREATE OR REPLACE everywhere.
+-- Tally schema — the single source of truth for the database.
+--
+-- To set up a fresh Supabase project: paste this whole file into the SQL
+-- Editor and run it once. That's it. Everything is here:
+--   • All tables (households, profiles, people, countries, items, payments,
+--     reminder_rules, reminders, whatsapp_pending_choice, creds_access_log)
+--   • All indexes, including soft-delete partial indexes
+--   • All RLS policies
+--   • All functions (get_email_by_username, setup_new_household,
+--     touch_updated_at, clone_payment_next_recurrence, tally_purge_trash)
+--   • The nightly auto-purge cron schedule (pg_cron)
+--
+-- Safe to re-run: uses IF NOT EXISTS / CREATE OR REPLACE everywhere, and
+-- the cron schedule is unscheduled-then-rescheduled to stay idempotent.
 -- ============================================================================
 
 -- --------------------------------------------------------------------------
@@ -12,9 +24,19 @@ CREATE TABLE IF NOT EXISTS households (
   name TEXT NOT NULL,
   home_currency TEXT NOT NULL DEFAULT 'INR',
   timezone TEXT NOT NULL DEFAULT 'Asia/Kolkata',
+  -- WhatsApp reminder template. Placeholders: {name} {payment} {amount}
+  -- {currency} {when} {portal_name} {bank_name} {notes} {item} {country}.
+  -- Credentials are deliberately NOT available as placeholders.
+  reminder_template TEXT NOT NULL DEFAULT
+    E'Hi {name}!\n\n{payment} ({item}) is due {when} — {amount} {currency}.\n\nReply PAID when done, or SNOOZE 2 to push by 2 days.\n\n— Tally',
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+-- Defensive: if the table already existed without reminder_template, add it.
+ALTER TABLE households
+  ADD COLUMN IF NOT EXISTS reminder_template TEXT NOT NULL DEFAULT
+    E'Hi {name}!\n\n{payment} ({item}) is due {when} — {amount} {currency}.\n\nReply PAID when done, or SNOOZE 2 to push by 2 days.\n\n— Tally';
 
 CREATE TABLE IF NOT EXISTS profiles (
   user_id UUID PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
@@ -64,6 +86,18 @@ CREATE INDEX IF NOT EXISTS idx_items_household_country
   ON items(household_id, country_id);
 CREATE INDEX IF NOT EXISTS idx_items_household_live
   ON items(household_id) WHERE deleted_at IS NULL;
+CREATE INDEX IF NOT EXISTS idx_items_household_deleted
+  ON items(household_id, deleted_at) WHERE deleted_at IS NOT NULL;
+
+CREATE INDEX IF NOT EXISTS idx_countries_household_live
+  ON countries(household_id) WHERE deleted_at IS NULL;
+CREATE INDEX IF NOT EXISTS idx_countries_household_deleted
+  ON countries(household_id, deleted_at) WHERE deleted_at IS NOT NULL;
+
+CREATE INDEX IF NOT EXISTS idx_people_household_live
+  ON people(household_id) WHERE deleted_at IS NULL;
+CREATE INDEX IF NOT EXISTS idx_people_household_deleted
+  ON people(household_id, deleted_at) WHERE deleted_at IS NOT NULL;
 
 CREATE TABLE IF NOT EXISTS payments (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -125,6 +159,31 @@ CREATE INDEX IF NOT EXISTS idx_payments_household_item
   ON payments(household_id, item_id);
 CREATE INDEX IF NOT EXISTS idx_payments_household_live
   ON payments(household_id) WHERE deleted_at IS NULL;
+CREATE INDEX IF NOT EXISTS idx_payments_household_deleted
+  ON payments(household_id, deleted_at) WHERE deleted_at IS NOT NULL;
+
+-- Audit log: every reminder we attempt to send, success or failure.
+-- Inserts come from the send-reminder edge function via service role.
+CREATE TABLE IF NOT EXISTS reminders (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  household_id UUID NOT NULL REFERENCES households(id) ON DELETE CASCADE,
+  payment_id UUID REFERENCES payments(id) ON DELETE SET NULL,
+  person_id TEXT, -- references people.id within the household, or 'both'
+  channel TEXT NOT NULL DEFAULT 'whatsapp',
+  kind TEXT NOT NULL DEFAULT 'reminder'
+    CHECK (kind IN ('reminder', 'test', 'followup')),
+  body TEXT NOT NULL,
+  sent_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  twilio_sid TEXT,
+  error TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_reminders_household_sent
+  ON reminders(household_id, sent_at DESC);
+CREATE INDEX IF NOT EXISTS idx_reminders_payment
+  ON reminders(payment_id);
+CREATE INDEX IF NOT EXISTS idx_reminders_twilio_sid
+  ON reminders(twilio_sid) WHERE twilio_sid IS NOT NULL;
 
 CREATE TABLE IF NOT EXISTS reminder_rules (
   id TEXT NOT NULL,
@@ -160,8 +219,14 @@ ALTER TABLE countries ENABLE ROW LEVEL SECURITY;
 ALTER TABLE items ENABLE ROW LEVEL SECURITY;
 ALTER TABLE payments ENABLE ROW LEVEL SECURITY;
 ALTER TABLE reminder_rules ENABLE ROW LEVEL SECURITY;
+ALTER TABLE reminders ENABLE ROW LEVEL SECURITY;
 ALTER TABLE whatsapp_pending_choice ENABLE ROW LEVEL SECURITY;
 ALTER TABLE creds_access_log ENABLE ROW LEVEL SECURITY;
+
+-- Reminders are read-only for the user (writes go via service-role edge fn).
+DROP POLICY IF EXISTS "reminders_select_own" ON reminders;
+CREATE POLICY "reminders_select_own" ON reminders FOR SELECT
+  USING (household_id = (SELECT household_id FROM profiles WHERE user_id = auth.uid()));
 
 -- Helper inlined into every policy: this user's household_id
 -- (using a SELECT subquery keeps RLS evaluable and uses the index on profiles)
@@ -302,3 +367,107 @@ CREATE TRIGGER touch_households_updated_at BEFORE UPDATE ON households
 DROP TRIGGER IF EXISTS touch_payments_updated_at ON payments;
 CREATE TRIGGER touch_payments_updated_at BEFORE UPDATE ON payments
   FOR EACH ROW EXECUTE FUNCTION public.touch_updated_at();
+
+-- --------------------------------------------------------------------------
+-- RECURRENCE CLONE
+-- --------------------------------------------------------------------------
+-- When a recurring payment is marked paid, the app creates the "next
+-- instance" by cloning the source row server-side. This includes the
+-- encrypted credential ciphertext columns, which the JS client never sees
+-- directly. SECURITY INVOKER → RLS applies, so the user can only clone a
+-- payment they own.
+
+CREATE OR REPLACE FUNCTION public.clone_payment_next_recurrence(
+  source_payment_id UUID,
+  next_due_date DATE,
+  next_status TEXT
+) RETURNS UUID
+LANGUAGE plpgsql
+SECURITY INVOKER
+SET search_path = public
+AS $$
+DECLARE
+  new_id UUID;
+BEGIN
+  IF next_status NOT IN ('upcoming', 'overdue') THEN
+    RAISE EXCEPTION 'next_status must be upcoming or overdue' USING ERRCODE = '22023';
+  END IF;
+
+  INSERT INTO payments (
+    household_id, item_id, person, name, amount, currency, direction,
+    due_date, recurrence, end_date, status,
+    portal_name, bank_name, notes,
+    portal_username_ct, portal_password_ct, bank_username_ct, bank_password_ct
+  )
+  SELECT
+    household_id, item_id, person, name, amount, currency, direction,
+    next_due_date, recurrence, end_date, next_status,
+    portal_name, bank_name, notes,
+    portal_username_ct, portal_password_ct, bank_username_ct, bank_password_ct
+  FROM payments
+  WHERE id = source_payment_id
+    AND deleted_at IS NULL
+  RETURNING id INTO new_id;
+
+  RETURN new_id;
+END;
+$$;
+
+GRANT EXECUTE ON FUNCTION public.clone_payment_next_recurrence(UUID, DATE, TEXT)
+  TO authenticated, service_role;
+
+-- --------------------------------------------------------------------------
+-- AUTO-PURGE (Trash retention)
+-- --------------------------------------------------------------------------
+-- Hard-deletes soft-deleted rows older than 30 days. Order matters because
+-- payments → items → countries form a FK chain:
+--   1. Payments first (no children).
+--   2. Items next. The payments→items FK is ON DELETE SET NULL — any live
+--      payment pointing at this item just becomes "Unlinked".
+--   3. Countries — BUT only if no items (live or trashed) reference them.
+--      The items→countries CASCADE would otherwise silently hard-delete
+--      live items.
+--   4. People last (payments.person is plain text, no FK chain).
+
+CREATE EXTENSION IF NOT EXISTS pg_cron WITH SCHEMA extensions;
+
+CREATE OR REPLACE FUNCTION public.tally_purge_trash()
+RETURNS void
+LANGUAGE plpgsql
+AS $$
+BEGIN
+  DELETE FROM payments
+    WHERE deleted_at IS NOT NULL
+      AND deleted_at < now() - interval '30 days';
+
+  DELETE FROM items
+    WHERE deleted_at IS NOT NULL
+      AND deleted_at < now() - interval '30 days';
+
+  DELETE FROM countries c
+    WHERE c.deleted_at IS NOT NULL
+      AND c.deleted_at < now() - interval '30 days'
+      AND NOT EXISTS (
+        SELECT 1 FROM items i
+        WHERE i.household_id = c.household_id AND i.country_id = c.id
+      );
+
+  DELETE FROM people
+    WHERE deleted_at IS NOT NULL
+      AND deleted_at < now() - interval '30 days';
+END;
+$$;
+
+-- (Re)schedule the nightly purge. Safe to re-run — unschedules first.
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM cron.job WHERE jobname = 'tally-auto-purge') THEN
+    PERFORM cron.unschedule('tally-auto-purge');
+  END IF;
+END $$;
+
+SELECT cron.schedule(
+  'tally-auto-purge',
+  '0 3 * * *', -- daily at 03:00 UTC
+  $$SELECT public.tally_purge_trash();$$
+);
