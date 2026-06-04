@@ -71,7 +71,7 @@ scope decisions i made *for* her at this stage are flagged so i can revisit them
 
 ## round 1 — revisited
 
-**date:** 2026-05-27 (same day, hours later)
+**date:** 2026-05-30 (few days later)
 **format:** she added more detail after my first pass.
 **why this is its own section:** my first interpretation was wrong in a way worth showing. i flattened a two-dimensional structure into one dimension ("rename categories to properties") and missed the operating model underneath. when she gave me more detail, the actual shape came into view. leaving both reads in the doc — instead of overwriting the first one — is the point of this log.
 
@@ -118,7 +118,7 @@ revised decisions (supersede the earlier list above):
 
 ## round 2 — first real walkthrough
 
-**date:** 2026-05-31
+**date:** 2026-06-01
 **format:** she opened the portal, tried to use it as if she were going to enter all her real data. i sat next to her and watched her get stuck. a stream of small asks, plus one big one at the end.
 **duration:** ~45 minutes of her clicking, ~2 hours of me iterating in between her batches of feedback.
 
@@ -193,5 +193,5 @@ these felt minor in the moment but every one of them tells me something about ho
 | --- | --- | --- |
 | v1 brief | 2026-05-24 | initial build from one-sentence ask |
 | round 1 | 2026-05-27 | properties (not categories), incoming + outgoing, payment metadata, disambiguated whatsapp replies |
-| round 1 revisited | 2026-05-27 | country × item matrix (not just properties), per-country local currency, filters as primary surface, backup/recovery as v1 requirement |
-| round 2 | 2026-05-31 | naming pass (incoming/outgoing, payments hero), unconditional country→currency sync, dedup of recurring auto-instances, soft delete + trash + scoped recurring delete + auto-purge + delete-forever, whatsapp 3-step reply resolution, inline-create country/item from payment dialog, **per-payment encrypted credentials** (portal + bank + notes) |
+| round 1 revisited | 2026-05-31 | country × item matrix (not just properties), per-country local currency, filters as primary surface, backup/recovery as v1 requirement |
+| round 2 | 2026-06-01 | naming pass (incoming/outgoing, payments hero), unconditional country→currency sync, dedup of recurring auto-instances, soft delete + trash + scoped recurring delete + auto-purge + delete-forever, whatsapp 3-step reply resolution, inline-create country/item from payment dialog, **per-payment encrypted credentials** (portal + bank + notes) |
