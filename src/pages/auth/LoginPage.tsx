@@ -11,9 +11,11 @@ import {
 export function LoginPage({
   onSignup,
   onForgot,
+  onSample,
 }: {
   onSignup: () => void
   onForgot: () => void
+  onSample: () => void
 }) {
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
@@ -50,12 +52,20 @@ export function LoginPage({
       title="Welcome."
       subtitle="Sign in to your household."
       footer={
-        <button
-          onClick={onSignup}
-          className="font-medium text-ink underline-offset-4 hover:underline"
-        >
-          Create a new household →
-        </button>
+        <div className="flex flex-col items-center gap-2">
+          <button
+            onClick={onSignup}
+            className="font-medium text-ink underline-offset-4 hover:underline"
+          >
+            Create a new household →
+          </button>
+          <button
+            onClick={onSample}
+            className="text-xs font-medium text-ink-muted underline-offset-4 hover:text-ink hover:underline"
+          >
+            Just exploring? See a sample household →
+          </button>
+        </div>
       }
     >
       <form onSubmit={handleSubmit} className="space-y-4">

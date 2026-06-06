@@ -3,8 +3,9 @@ import { LoginPage } from './LoginPage'
 import { SignupPage } from './SignupPage'
 import { ForgotPasswordPage } from './ForgotPasswordPage'
 import { ResetPasswordPage } from './ResetPasswordPage'
+import { SamplePage } from '../SamplePage'
 
-type Mode = 'login' | 'signup' | 'forgot' | 'reset'
+type Mode = 'login' | 'signup' | 'forgot' | 'reset' | 'sample'
 
 function detectInitialMode(): Mode {
   if (typeof window === 'undefined') return 'login'
@@ -36,12 +37,20 @@ export function AuthScreens() {
       return <ForgotPasswordPage onLogin={() => setMode('login')} />
     case 'reset':
       return <ResetPasswordPage onDone={() => setMode('login')} />
+    case 'sample':
+      return (
+        <SamplePage
+          onExit={() => setMode('login')}
+          onSignup={() => setMode('signup')}
+        />
+      )
     case 'login':
     default:
       return (
         <LoginPage
           onSignup={() => setMode('signup')}
           onForgot={() => setMode('forgot')}
+          onSample={() => setMode('sample')}
         />
       )
   }

@@ -289,7 +289,7 @@ function isSameMonth(iso: string, ref: Date): boolean {
   )
 }
 
-function Dashboard({
+export function Dashboard({
   household,
   people,
   countries,
