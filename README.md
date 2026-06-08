@@ -35,11 +35,6 @@ npm run dev
 
 For a working backend you also need:
 
-<<<<<<< HEAD
-1. Apply `supabase/schema.sql` in Supabase
-2. `openssl rand -base64 32` → set as `TALLY_CREDS_KEY` in Supabase Edge Function secrets
-3. `supabase functions deploy creds-get creds-set send-reminder whatsapp-webhook`
-=======
 1. **Paste `supabase/schema.sql` into the Supabase SQL editor** and run it once. The file is fully self-sufficient — every table, index, RLS policy, function, and the nightly auto-purge cron schedule, all in one paste.
 2. `openssl rand -base64 32` → save as `TALLY_CREDS_KEY` in **Supabase Edge Function secrets** (the AES key for credential encryption).
 3. Deploy the edge functions:
@@ -48,7 +43,6 @@ For a working backend you also need:
    ```
    Ensure `creds-get` / `creds-set` have **Verify JWT** on; ensure `whatsapp-webhook` has it off.
 4. (Optional) Configure Twilio Sandbox: point the inbound webhook at the `whatsapp-webhook` function URL.
->>>>>>> fd2950d (updating docs)
 
 Full step-by-step lives in the [deploy guide](./docs/deploy.md) and [test plan](./docs/manual-test-full.md).
 
