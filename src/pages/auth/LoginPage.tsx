@@ -63,7 +63,7 @@ export function LoginPage({
             onClick={onSample}
             className="text-xs font-medium text-ink-muted underline-offset-4 hover:text-ink hover:underline"
           >
-            Just exploring? See a sample household →
+            Just exploring? →
           </button>
         </div>
       }
