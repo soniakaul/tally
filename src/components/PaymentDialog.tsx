@@ -321,9 +321,9 @@ export function PaymentDialog({
     >
       <div
         onClick={(e) => e.stopPropagation()}
-        className="w-full max-w-2xl rounded-2xl bg-cream shadow-2xl"
+        className="flex max-h-[90vh] w-full max-w-2xl flex-col rounded-2xl bg-cream shadow-2xl"
       >
-        <div className="flex items-start justify-between border-b border-edge px-6 py-5">
+        <div className="flex flex-none items-start justify-between border-b border-edge px-6 py-5">
           <div>
             <h2 className="font-display text-2xl font-bold tracking-tightest text-ink">
               {isEdit ? 'Edit payment' : 'New payment'}
@@ -343,6 +343,7 @@ export function PaymentDialog({
           </button>
         </div>
 
+        <div className="flex-1 overflow-y-auto">
         {(needsCountry || needsItem) && (
           <div className="mx-6 mt-5 rounded-lg border border-amber/60 bg-amber-soft px-4 py-3 text-xs text-ochre">
             {needsCountry
@@ -620,9 +621,10 @@ export function PaymentDialog({
             )}
           </div>
         </div>
+        </div>
 
         {savingMode === 'picking-edit' ? (
-          <div className="border-t border-edge bg-sage-soft/50 px-6 py-4">
+          <div className="flex-none border-t border-edge bg-sage-soft/50 px-6 py-4">
             <p className="mb-3 text-xs font-medium uppercase tracking-wide text-sage">
               Apply changes to which instances?
             </p>
@@ -662,7 +664,7 @@ export function PaymentDialog({
             </p>
           </div>
         ) : removingMode === 'picking' ? (
-          <div className="border-t border-edge bg-terracotta-soft/50 px-6 py-4">
+          <div className="flex-none border-t border-edge bg-terracotta-soft/50 px-6 py-4">
             <p className="mb-3 text-xs font-medium uppercase tracking-wide text-terracotta">
               Delete which instances?
             </p>
@@ -701,7 +703,7 @@ export function PaymentDialog({
             </div>
           </div>
         ) : (
-          <div className="flex items-center justify-between border-t border-edge px-6 py-4">
+          <div className="flex flex-none items-center justify-between border-t border-edge px-6 py-4">
             <div className="flex items-center gap-4">
               {isEdit && onRemove && (
                 <button
@@ -752,7 +754,7 @@ export function PaymentDialog({
           </div>
         )}
         {saveError && (
-          <div className="border-t border-edge bg-terracotta-soft px-6 py-3 text-xs text-terracotta">
+          <div className="flex-none border-t border-edge bg-terracotta-soft px-6 py-3 text-xs text-terracotta">
             {saveError}
           </div>
         )}
